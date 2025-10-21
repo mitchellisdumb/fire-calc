@@ -1089,14 +1089,14 @@ export default function FIRECalculator() {
       <h1 className="text-3xl font-bold mb-6 text-gray-800">FIRE Retirement Calculator</h1>
       
       {projections.fireYear && (
-        <div className="bg-green-100 border-l-4 border-green-500 p-4 mb-6">
-          <p className="text-lg font-semibold text-green-800">
+        <div className="bg-blue-100 border-l-4 border-blue-500 p-4 mb-6">
+          <p className="text-lg font-semibold text-blue-800">
             🎉 FIRE Achieved in {projections.fireYear.year}! 
           </p>
-          <p className="text-base text-green-700 mt-1">
+          <p className="text-base text-blue-700 mt-1">
             You'll be {projections.fireYear.year - 1987} and your spouse will be {projections.fireYear.year - 1989} ({projections.fireYear.year - currentYear} years from now)
           </p>
-          <p className="text-sm text-green-600 mt-2">
+          <p className="text-sm text-blue-600 mt-2">
             Your portfolio will sustainably cover ${fireExpenseTarget.toLocaleString()} in annual expenses (inflation-adjusted) at a {withdrawalRate}% withdrawal rate, with sufficient funds reserved for any remaining college costs not covered by 529 accounts.
           </p>
         </div>
