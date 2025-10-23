@@ -9,7 +9,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
  * with complex career trajectory (BigLaw → Clerking → BigLaw → Public Interest).
  * 
  * KEY FEATURES:
- * - Deterministic base case projection (2025-2065)
+ * - Deterministic base case projection (2025-2087)
  * - Monte Carlo simulation with both accumulation and withdrawal phases
  * - Tax calculations (Federal, California, FICA)
  * - 529 college savings with per-daughter tracking
@@ -48,11 +48,11 @@ export default function FIRECalculator() {
   // FIRE TARGET SETTINGS
   // ============================================================================
   // Target annual spending in retirement (inflates with general inflation)
-  // Withdrawal rate: 3.5% is conservative for 40+ year horizon (vs traditional 4% rule)
+  // Withdrawal rate: 4% is the traditional rule (3.5% is more conservative for longer horizons)
   // Healthcare buffer: Optional additional reserve for pre-Medicare years (until age 65)
   const [fireExpenseTarget, setFireExpenseTarget] = useState(135000);
-  const [withdrawalRate, setWithdrawalRate] = useState(3.5);
-  const [includeHealthcareBuffer, setIncludeHealthcareBuffer] = useState(false);
+  const [withdrawalRate, setWithdrawalRate] = useState(4);
+  const [includeHealthcareBuffer, setIncludeHealthcareBuffer] = useState(true);
   const [annualHealthcareCost, setAnnualHealthcareCost] = useState(12000);
   
   // ============================================================================
@@ -87,18 +87,18 @@ export default function FIRECalculator() {
   const [clerkingSalary, setClerkingSalary] = useState(100000);
   const [returnToFirmYear, setReturnToFirmYear] = useState(3);
   const [publicInterestYear, setPublicInterestYear] = useState(2036);
-  const [publicInterestSalary, setPublicInterestSalary] = useState(80000);
+  const [publicInterestSalary, setPublicInterestSalary] = useState(110000);
   const [publicInterestGrowth, setPublicInterestGrowth] = useState(3);
-  
+
   // ============================================================================
   // SOCIAL SECURITY
   // ============================================================================
   // Social Security income starts at specified ages (typically 62-70)
   // Inflates with general inflation rate to model COLA adjustments
   const [mySocialSecurityAmount, setMySocialSecurityAmount] = useState(35000);
-  const [mySocialSecurityStartYear, setMySocialSecurityStartYear] = useState(2055);
+  const [mySocialSecurityStartAge, setMySocialSecurityStartAge] = useState(68);
   const [spouseSocialSecurityAmount, setSpouseSocialSecurityAmount] = useState(40000);
-  const [spouseSocialSecurityStartYear, setSpouseSocialSecurityStartYear] = useState(2057);
+  const [spouseSocialSecurityStartAge, setSpouseSocialSecurityStartAge] = useState(70);
   
   // ============================================================================
   // LAW SCHOOL TUITION
@@ -135,9 +135,12 @@ export default function FIRECalculator() {
   // - After mortgage payoff (2050), cash flow increases significantly
   const [rentalIncome, setRentalIncome] = useState(5800);
   const [rentalMortgagePandI, setRentalMortgagePandI] = useState(1633);
-  const [rentalMortgagePrincipal] = useState(355621.78);
+  const [rentalMortgageStartYear] = useState(2020);
+  const [rentalMortgageOriginalPrincipal] = useState(400000);
   const [rentalMortgageRate] = useState(2.75);
-  const [mortgageEndYear, setMortgageEndYear] = useState(2050);
+  // mortgageEndYear: First year with NO mortgage payments (loan is fully paid off)
+  // If final payment is Nov 2050, set this to 2051 (first year with no payments)
+  const [mortgageEndYear, setMortgageEndYear] = useState(2051);
   const [rentalPropertyTax, setRentalPropertyTax] = useState(8000);
   const [rentalPropertyTaxGrowth, setRentalPropertyTaxGrowth] = useState(2);
   const [rentalInsurance, setRentalInsurance] = useState(3323);
@@ -155,6 +158,10 @@ export default function FIRECalculator() {
   // - FICA: Social Security (6.2% up to wage base), Medicare (1.45% + 0.9% over $250k MFJ)
   const [standardDeduction, setStandardDeduction] = useState(29200);
   const [itemizedDeductions, setItemizedDeductions] = useState(0);
+
+  // Social Security wage base parameters
+  const [ssWageBase2025] = useState(168600); // 2025 Social Security wage base
+  const [ssWageBaseGrowth] = useState(4.0);  // Historical average wage growth rate
   
   // ============================================================================
   // MONTE CARLO SETTINGS
@@ -166,78 +173,115 @@ export default function FIRECalculator() {
   const [mcEnabled, setMcEnabled] = useState(false);
   const [mcIterations, setMcIterations] = useState(1000);
   const [mcVolatility, setMcVolatility] = useState(15);
+  const [mcTargetSurvival, setMcTargetSurvival] = useState(90);
+  const [mcRetirementEndAge, setMcRetirementEndAge] = useState(90);
   const [mcRunning, setMcRunning] = useState(false);
   const [mcResults, setMcResults] = useState(null);
+
+  // Spending decrement in retirement (Bengen's "Prosperous Retirement" model)
+  // Real spending typically declines as retirees age (less travel, activities, etc.)
+  // These represent ANNUAL percentage decrements in REAL dollars (on top of inflation)
+  const [spendingDecrement65to74, setSpendingDecrement65to74] = useState(1); // % per year
+  const [spendingDecrement75to84, setSpendingDecrement75to84] = useState(4); // % per year
+  const [spendingDecrement85plus, setSpendingDecrement85plus] = useState(2); // % per year
   
   // ============================================================================
   // CRAVATH SALARY SCALE
   // ============================================================================
   /**
-   * Returns BigLaw base salary for given associate year (2025 Cravath scale)
-   * 
+   * Returns BigLaw total compensation for given associate year (2025 Cravath scale)
+   *
    * RATIONALE:
    * - Cravath sets market for BigLaw compensation
    * - Scale is lockstep (no performance-based variance)
    * - No annual raises; progression only via class year advancement
    * - Scale is set during first year and remains fixed (no updating for inflation)
-   * 
+   * - Includes base salary + standard market bonus
+   *
+   * SOURCE: https://www.biglawinvestor.com/biglaw-salary-scale/
+   *
    * @param {number} associateYear - Associate class year (1-8)
-   * @returns {number} Annual base salary (excludes bonuses)
+   * @returns {number} Annual total compensation (base + bonus)
    */
   const getCravathSalary = (associateYear) => {
+    // Base salary + standard bonus for each year
     const scale = {
-      1: 225000, 2: 235000, 3: 260000, 4: 305000,
-      5: 340000, 6: 365000, 7: 410000, 8: 420000
+      1: 225000 + 20000,   // Year 1: $225k base + $20k bonus = $245k
+      2: 235000 + 25000,   // Year 2: $235k base + $25k bonus = $260k
+      3: 260000 + 35000,   // Year 3: $260k base + $35k bonus = $295k
+      4: 305000 + 55000,   // Year 4: $305k base + $55k bonus = $360k
+      5: 340000 + 75000,   // Year 5: $340k base + $75k bonus = $415k
+      6: 365000 + 90000,   // Year 6: $365k base + $90k bonus = $455k
+      7: 410000 + 115000,  // Year 7: $410k base + $115k bonus = $525k
+      8: 420000 + 115000   // Year 8: $420k base + $115k bonus = $535k
     };
-    return scale[associateYear] || 420000;
+    return scale[associateYear] || 535000;
   };
   
   // ============================================================================
   // MORTGAGE INTEREST CALCULATION (CLOSED-FORM AMORTIZATION)
   // ============================================================================
   /**
-   * Calculates annual mortgage interest for rental property using closed-form formula
-   * 
+   * Calculates annual mortgage interest for rental property using amortization formula
+   *
    * APPROACH:
-   * Instead of iterating month-by-month from loan origination, we:
-   * 1. Calculate remaining balance at start of year using amortization formula
-   * 2. Calculate interest for that year's 12 months
-   * 
+   * 1. Calculate remaining balance at start of year using standard amortization formula
+   * 2. Calculate interest for that year's 12 months by iterating month-by-month
+   *
+   * FORMULA:
+   * Remaining balance after m payments = P * (1+r)^m - PMT * ((1+r)^m - 1) / r
+   * where P = original principal, r = monthly rate, m = months elapsed
+   *
    * RATIONALE:
-   * - More efficient than month-by-month iteration
-   * - Mathematically equivalent result
    * - Interest is tax-deductible; principal payment is not
-   * 
+   * - Must use actual loan origination date (not currentYear) for accuracy
+   *
+   * PAYOFF YEAR HANDLING:
+   * - mortgageEndYear is the FIRST year with NO payments (loan fully paid)
+   * - If final payment is Nov 2050, mortgageEndYear = 2051
+   * - This function returns 0 for year >= mortgageEndYear
+   * - For the final payment year, it calculates partial year interest
+   *
    * @param {number} year - Year to calculate interest for
    * @returns {number} Total interest paid during that year
    */
   const calculateMortgageInterest = (year) => {
     if (year >= mortgageEndYear) return 0;
-    
+
     const monthlyRate = rentalMortgageRate / 100 / 12;
-    const monthlyPayment = rentalMortgagePandI;
-    const monthsElapsed = (year - currentYear) * 12;
-    
-    // Calculate total months from start to payoff
-    const totalMonths = (mortgageEndYear - currentYear) * 12;
-    const remainingMonths = totalMonths - monthsElapsed;
-    
+    const loanTermMonths = (mortgageEndYear - rentalMortgageStartYear) * 12;
+
+    // Calculate monthly payment from original principal, rate, and term
+    // PMT = P * r / (1 - (1+r)^-n)
+    const monthlyPayment = rentalMortgageOriginalPrincipal * monthlyRate /
+                          (1 - Math.pow(1 + monthlyRate, -loanTermMonths));
+
+    // Verify this matches the provided P&I (should be within rounding)
+    // Expected: ~$1,633/month for $400k at 2.75% over 30 years
+
+    // Calculate months elapsed from loan start to beginning of this year
+    const monthsElapsed = Math.max(0, (year - rentalMortgageStartYear) * 12);
+    const remainingMonths = Math.max(0, loanTermMonths - monthsElapsed);
+
     if (remainingMonths <= 0) return 0;
-    
-    // Remaining balance formula: PMT * [(1 - (1+r)^-n) / r]
-    const remainingBalance = monthlyPayment * ((1 - Math.pow(1 + monthlyRate, -remainingMonths)) / monthlyRate);
-    
+
+    // Calculate remaining balance at start of year using standard amortization formula
+    // Balance = P * (1+r)^m - PMT * ((1+r)^m - 1) / r
+    const compoundFactor = Math.pow(1 + monthlyRate, monthsElapsed);
+    let remainingBalance = rentalMortgageOriginalPrincipal * compoundFactor -
+                          monthlyPayment * (compoundFactor - 1) / monthlyRate;
+
     // Calculate interest for the 12 months of this year
-    let balance = remainingBalance;
     let annualInterest = 0;
-    
-    for (let month = 0; month < 12 && balance > 0; month++) {
-      const interest = balance * monthlyRate;
+    const monthsThisYear = Math.min(12, remainingMonths);
+
+    for (let month = 0; month < monthsThisYear; month++) {
+      const interest = remainingBalance * monthlyRate;
       annualInterest += interest;
       const principal = monthlyPayment - interest;
-      balance -= principal;
+      remainingBalance -= principal;
     }
-    
+
     return annualInterest;
   };
   
@@ -301,14 +345,41 @@ export default function FIRECalculator() {
    */
   const calculateTaxes = (myIncome, spouseIncome, rentalNetForTaxes, socialSecurityIncome, year) => {
     const wageIncome = myIncome + spouseIncome;
-    
-    // Social Security is typically partially taxable, but for simplicity we include full amount
-    // (Real calculation would apply 85% inclusion ratio above certain thresholds)
-    const totalIncome = wageIncome + rentalNetForTaxes + socialSecurityIncome;
-    
+
+    // Calculate taxable portion of Social Security using provisional income method
+    // Provisional income = AGI + tax-exempt interest + 50% of SS benefits
+    // Thresholds for MFJ: $32k (0% taxable), $44k (50% taxable), above $44k (85% taxable)
+    const provisionalIncome = wageIncome + rentalNetForTaxes + (socialSecurityIncome * 0.5);
+
+    let taxableSS = 0;
     const yearsFromNow = year - currentYear;
     const inflationFactor = Math.pow(1 + inflationRate / 100, yearsFromNow);
-    
+
+    // Thresholds inflate with general inflation
+    const threshold1 = 32000 * inflationFactor; // First threshold (MFJ)
+    const threshold2 = 44000 * inflationFactor; // Second threshold (MFJ)
+
+    if (provisionalIncome <= threshold1) {
+      // No Social Security is taxable
+      taxableSS = 0;
+    } else if (provisionalIncome <= threshold2) {
+      // Up to 50% of benefits are taxable
+      taxableSS = Math.min(
+        socialSecurityIncome * 0.5,
+        (provisionalIncome - threshold1) * 0.5
+      );
+    } else {
+      // Up to 85% of benefits are taxable
+      const amount1 = (threshold2 - threshold1) * 0.5; // Max from 50% tier
+      const amount2 = (provisionalIncome - threshold2) * 0.85; // Amount from 85% tier
+      taxableSS = Math.min(
+        socialSecurityIncome * 0.85,
+        amount1 + amount2
+      );
+    }
+
+    const totalIncome = wageIncome + rentalNetForTaxes + taxableSS;
+
     // Above-the-line deductions (reduce AGI before standard/itemized choice)
     const hsaContribution = 8550 * inflationFactor;
     const dependentCareFSA = year === 2025 ? 5000 : 7500 * Math.pow(1 + inflationRate / 100, Math.max(0, yearsFromNow - 1));
@@ -370,10 +441,10 @@ export default function FIRECalculator() {
     }
     
     // FICA (Federal Insurance Contributions Act) - applies to W-2 wages only
-    // Social Security: 6.2% up to wage base (indexed to wage growth, ~4% annually)
+    // Social Security: 6.2% up to wage base (indexed to wage growth)
     // Medicare: 1.45% on all wages
     // Additional Medicare: 0.9% on wages over $250k (MFJ threshold)
-    const ssWageBase = 168600 * Math.pow(1.04, yearsFromNow);
+    const ssWageBase = ssWageBase2025 * Math.pow(1 + ssWageBaseGrowth / 100, yearsFromNow);
     const mySSWages = Math.min(myIncome, ssWageBase);
     const spouseSSWages = Math.min(spouseIncome, ssWageBase);
     const socialSecurityTax = (mySSWages + spouseSSWages) * 0.062;
@@ -390,7 +461,7 @@ export default function FIRECalculator() {
       medicareTax: Math.round(medicareTax),
       additionalMedicare: Math.round(additionalMedicare),
       totalTax: Math.round(totalTax),
-      effectiveRate: (totalTax / totalIncome * 100).toFixed(1)
+      effectiveRate: totalIncome > 0 ? (totalTax / totalIncome * 100).toFixed(1) : '0.0'
     };
   };
   
@@ -398,26 +469,57 @@ export default function FIRECalculator() {
   // BOX-MULLER TRANSFORM (MONTE CARLO RANDOM NUMBER GENERATION)
   // ============================================================================
   /**
-   * Generates random numbers from normal distribution using Box-Muller transform
-   * 
+   * Generates standard normal random variable (mean=0, stddev=1) using Box-Muller transform
+   *
    * APPROACH:
    * - Takes uniform random numbers [0,1] and converts to normal distribution
    * - More accurate than approximation methods for tails of distribution
-   * 
-   * USAGE IN MONTE CARLO:
-   * - Generate random annual returns: generateNormalRandom(7, 15) = 7% mean, 15% std dev
-   * - Models realistic market volatility (returns vary around expected value)
-   * 
-   * @param {number} mean - Expected return (center of distribution)
-   * @param {number} stdDev - Volatility (standard deviation)
-   * @returns {number} Random return drawn from normal distribution
+   *
+   * @returns {number} Standard normal random variable (z ~ N(0,1))
    */
-  const generateNormalRandom = (mean, stdDev) => {
+  const generateStandardNormal = () => {
     let u1 = 0, u2 = 0;
     while(u1 === 0) u1 = Math.random();
     while(u2 === 0) u2 = Math.random();
-    const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
-    return mean + z0 * stdDev;
+    return Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+  };
+
+  /**
+   * Generates lognormal random return for asset simulation
+   *
+   * RATIONALE:
+   * Asset prices follow geometric Brownian motion, meaning log returns are normally distributed.
+   * Using arithmetic normal returns (old approach) can produce unrealistic outcomes:
+   * - Negative returns < -100% (impossible - you can't lose more than 100%)
+   * - Incorrect geometric mean (arithmetic mean ≠ geometric mean)
+   *
+   * APPROACH:
+   * 1. Convert arithmetic mean to geometric mean: μ_log = ln(1 + μ) - 0.5σ²
+   * 2. Sample log return: r_log ~ N(μ_log, σ)
+   * 3. Convert to actual return: r = exp(r_log) - 1
+   *
+   * This ensures:
+   * - Returns are always > -100%
+   * - Proper geometric compounding
+   * - Correct long-term expected growth rate
+   *
+   * @param {number} arithmeticMean - Expected return in percent (e.g., 7 for 7%)
+   * @param {number} volatility - Standard deviation in percent (e.g., 15 for 15%)
+   * @returns {number} Random return as decimal (e.g., 0.07 for 7%)
+   */
+  const generateLognormalReturn = (arithmeticMean, volatility) => {
+    const mu = arithmeticMean / 100;  // Convert to decimal
+    const sigma = volatility / 100;    // Convert to decimal
+
+    // Convert arithmetic mean to log mean (adjust for volatility drag)
+    const muLog = Math.log(1 + mu) - 0.5 * sigma * sigma;
+
+    // Generate standard normal and scale
+    const z = generateStandardNormal();
+    const logReturn = muLog + sigma * z;
+
+    // Convert log return to actual return
+    return Math.exp(logReturn) - 1;
   };
   
   /**
@@ -438,7 +540,7 @@ export default function FIRECalculator() {
   // MAIN PROJECTION CALCULATION (DETERMINISTIC BASE CASE)
   // ============================================================================
   /**
-   * Calculates year-by-year financial projection from 2025-2065
+   * Calculates year-by-year financial projection from 2025-2087
    * 
    * APPROACH:
    * 1. Calculate income for year (salary progression, rental income, social security)
@@ -481,8 +583,8 @@ export default function FIRECalculator() {
     const k401Limit2025 = 23500;
     const rothLimit2025 = 7000;
     
-    // Loop through each year from 2025 to 2065 (40-year horizon)
-    for (let year = currentYear; year <= currentYear + 40; year++) {
+    // Loop through each year from 2025 to 2087 (62-year horizon, to age 100)
+    for (let year = currentYear; year <= currentYear + 62; year++) {
       const yearsFromNow = year - currentYear;
       const inflationFactor = Math.pow(1 + inflationRate / 100, yearsFromNow);
       
@@ -521,15 +623,20 @@ export default function FIRECalculator() {
       // Spouse income: Steady growth throughout career
       const spouseIncome = spouseIncome2025 * Math.pow(1 + spouseIncomeGrowth / 100, yearsFromNow);
       
-      // Social Security income (starts at specified years, inflates with general inflation)
+      // Social Security income (starts at specified ages, inflates with general inflation)
       let mySocialSecurity = 0;
       let spouseSocialSecurity = 0;
-      
+
+      const myAge = year - 1987; // Born in 1987
+      const spouseAge = year - 1989; // Born in 1989
+      const mySocialSecurityStartYear = 1987 + mySocialSecurityStartAge;
+      const spouseSocialSecurityStartYear = 1989 + spouseSocialSecurityStartAge;
+
       if (year >= mySocialSecurityStartYear) {
         const ssYears = year - mySocialSecurityStartYear;
         mySocialSecurity = mySocialSecurityAmount * Math.pow(1 + inflationRate / 100, ssYears);
       }
-      
+
       if (year >= spouseSocialSecurityStartYear) {
         const ssYears = year - spouseSocialSecurityStartYear;
         spouseSocialSecurity = spouseSocialSecurityAmount * Math.pow(1 + inflationRate / 100, ssYears);
@@ -588,8 +695,37 @@ export default function FIRECalculator() {
       // Monthly expenses inflate at general inflation rate
       // Property tax grows at Prop 13 cap (California-specific 2% limit)
       const propertyTaxMultiplier = Math.pow(1 + propertyTaxGrowth / 100, yearsFromNow);
-      const annualExpenses = (monthlyExpenses * 12 * inflationFactor) + (propertyTax * propertyTaxMultiplier);
-      
+      let annualExpenses = (monthlyExpenses * 12 * inflationFactor) + (propertyTax * propertyTaxMultiplier);
+
+      // Apply spending decrement in retirement (Bengen's "Prosperous Retirement" model)
+      // RATIONALE: Research shows real spending declines with age (less travel, dining, activities)
+      // Decrement is applied to REAL spending (in addition to inflation adjustments)
+      // Age brackets: <65 (full spending), 65-74, 75-84, 85+
+      if (myAge >= 65) {
+        // Calculate cumulative decrement based on years spent in each age bracket
+        let cumulativeDecrement = 1.0;
+
+        // Ages 65-74: apply first decrement rate
+        const yearsIn65to74 = Math.min(Math.max(0, myAge - 65), 10);
+        if (yearsIn65to74 > 0) {
+          cumulativeDecrement *= Math.pow(1 - spendingDecrement65to74 / 100, yearsIn65to74);
+        }
+
+        // Ages 75-84: apply second decrement rate
+        const yearsIn75to84 = Math.min(Math.max(0, myAge - 75), 10);
+        if (yearsIn75to84 > 0) {
+          cumulativeDecrement *= Math.pow(1 - spendingDecrement75to84 / 100, yearsIn75to84);
+        }
+
+        // Ages 85+: apply third decrement rate
+        const yearsIn85plus = Math.max(0, myAge - 85);
+        if (yearsIn85plus > 0) {
+          cumulativeDecrement *= Math.pow(1 - spendingDecrement85plus / 100, yearsIn85plus);
+        }
+
+        annualExpenses = annualExpenses * cumulativeDecrement;
+      }
+
       // =====================================================================
       // COLLEGE COSTS (529 ACCOUNTS)
       // =====================================================================
@@ -681,8 +817,11 @@ export default function FIRECalculator() {
       const k401Limit = k401Limit2025 * limitInflationFactor;
       const rothLimit = rothLimit2025 * limitInflationFactor;
       const employerMatch = calculateEmployerMatch(myIncome, spouseIncome, year);
-      
+
       // Max tax-advantaged contribution: (401k × 2) + (IRA × 2) + employer match
+      // ASSUMPTION: Both spouses have access to 401(k) and IRA accounts
+      // The "× 2" accounts for both taxpayer and spouse having these accounts
+      // Employer match is already calculated per-person in calculateEmployerMatch()
       const maxTaxAdvContribution = (k401Limit * 2) + (rothLimit * 2) + employerMatch;
       
       let taxAdvContribution = 0;
@@ -863,9 +1002,10 @@ export default function FIRECalculator() {
       spouseIncome2025, spouseIncomeGrowth, myIncome2025, bigLawStartYear, clerkingStartYear, clerkingEndYear,
       clerkingSalary, returnToFirmYear, publicInterestYear, publicInterestSalary, publicInterestGrowth,
       tuitionPerSemester, daughter1Birth, daughter2Birth, initial529Balance, annual529Contribution,
-      collegeCostPerYear, collegeInflation, standardDeduction, itemizedDeductions, rentalMortgagePrincipal,
-      rentalMortgageRate, mySocialSecurityAmount, mySocialSecurityStartYear, spouseSocialSecurityAmount,
-      spouseSocialSecurityStartYear]);
+      collegeCostPerYear, collegeInflation, standardDeduction, itemizedDeductions, rentalMortgageStartYear,
+      rentalMortgageOriginalPrincipal, rentalMortgageRate, mySocialSecurityAmount, mySocialSecurityStartAge,
+      spouseSocialSecurityAmount, spouseSocialSecurityStartAge, spendingDecrement65to74, spendingDecrement75to84,
+      spendingDecrement85plus]);
   
   // ============================================================================
   // MONTE CARLO SIMULATION WITH WITHDRAWAL PHASE
@@ -884,7 +1024,7 @@ export default function FIRECalculator() {
    * - Stop earning wage income (but continue Social Security + rental income)
    * - Withdraw from portfolio to cover expenses
    * - Apply random returns each year
-   * - Continue until end of projection (2065)
+   * - Continue until retirement end age (configurable, max 2087)
    * 
    * KEY METRICS:
    * - FIRE Success Rate: % of simulations that achieve FIRE target
@@ -918,8 +1058,13 @@ export default function FIRECalculator() {
         let depletionYear = null;
         
         const simYears = [];
-        
-        for (let yearIdx = 0; yearIdx < projections.years.length; yearIdx++) {
+
+        // Only simulate up to retirement end age year
+        const retirementEndYear = 1987 + mcRetirementEndAge;
+        const maxYearIdx = projections.years.findIndex(y => y.year > retirementEndYear);
+        const endIdx = maxYearIdx === -1 ? projections.years.length : maxYearIdx;
+
+        for (let yearIdx = 0; yearIdx < endIdx; yearIdx++) {
           const baseYear = projections.years[yearIdx];
           const year = baseYear.year;
           const portfolio = taxAdvPortfolio + taxablePortfolio;
@@ -930,9 +1075,10 @@ export default function FIRECalculator() {
             retirementYear = year;
           }
           
-          // Generate random returns for this year
-          const taxAdvReturn = generateNormalRandom(taxAdvReturnRate, mcVolatility) / 100;
-          const taxReturn = generateNormalRandom(taxableReturnRate, mcVolatility) / 100;
+          // Generate lognormal random returns for this year
+          // Returns are already in decimal form (e.g., 0.07 for 7%)
+          const taxAdvReturn = generateLognormalReturn(taxAdvReturnRate, mcVolatility);
+          const taxReturn = generateLognormalReturn(taxableReturnRate, mcVolatility);
           
           let netCashFlow;
           
@@ -956,24 +1102,55 @@ export default function FIRECalculator() {
             const socialSecurityIncome = baseYear.socialSecurityIncome || 0;
             
             // Calculate withdrawal needed: Expenses minus passive income sources
-            const withdrawalNeeded = Math.max(0, totalExpenses - rentalIncome - socialSecurityIncome);
-            
+            const netExpenses = Math.max(0, totalExpenses - rentalIncome - socialSecurityIncome);
+
             // Apply returns first
             taxAdvPortfolio = taxAdvPortfolio * (1 + taxAdvReturn);
             taxablePortfolio = taxablePortfolio * (1 + taxReturn);
-            
-            // Withdraw from taxable first (more tax-efficient), then tax-advantaged if needed
-            if (withdrawalNeeded > 0) {
-              if (taxablePortfolio >= withdrawalNeeded) {
-                taxablePortfolio -= withdrawalNeeded;
+
+            // Withdraw with tax considerations
+            // APPROACH: Iterate to find gross withdrawal that covers expenses + taxes
+            // ASSUMPTIONS:
+            // - Taxable withdrawals: 15% LTCG rate (simplified - ignores 0% and 20% brackets)
+            // - Tax-advantaged withdrawals: Taxed as ordinary income
+            // - Use iterative approximation (max 3 iterations for performance)
+
+            let totalWithdrawal = 0;
+            if (netExpenses > 0) {
+              let grossNeeded = netExpenses;
+
+              // Simple iteration to account for taxes on withdrawals
+              for (let iter = 0; iter < 3; iter++) {
+                let taxOnWithdrawal = 0;
+                const taxableWithdrawal = Math.min(grossNeeded, taxablePortfolio);
+                const taxAdvWithdrawal = Math.max(0, grossNeeded - taxableWithdrawal);
+
+                // Estimate tax on taxable account withdrawal (15% LTCG approximation)
+                if (taxableWithdrawal > 0) {
+                  taxOnWithdrawal += taxableWithdrawal * 0.15;
+                }
+
+                // Estimate tax on tax-advantaged withdrawal (use marginal rate approximation)
+                // Assume 22% marginal federal + 9.3% CA = ~31% combined marginal rate in retirement
+                if (taxAdvWithdrawal > 0) {
+                  taxOnWithdrawal += taxAdvWithdrawal * 0.31;
+                }
+
+                grossNeeded = netExpenses + taxOnWithdrawal;
+              }
+
+              // Execute withdrawal
+              totalWithdrawal = grossNeeded;
+              if (taxablePortfolio >= totalWithdrawal) {
+                taxablePortfolio -= totalWithdrawal;
               } else {
-                const remainingNeeded = withdrawalNeeded - taxablePortfolio;
+                const remainingNeeded = totalWithdrawal - taxablePortfolio;
                 taxablePortfolio = 0;
                 taxAdvPortfolio = Math.max(0, taxAdvPortfolio - remainingNeeded);
               }
             }
             
-            netCashFlow = -withdrawalNeeded;
+            netCashFlow = -totalWithdrawal;
           }
           
           // Floor portfolios at zero
@@ -1015,20 +1192,71 @@ export default function FIRECalculator() {
       }
       
       // ===== CALCULATE STATISTICS =====
-      
+
       const achievedFire = simResults.filter(r => r.fireYear !== null);
-      const fireYears = achievedFire.map(r => r.fireYear);
-      const fireAges = achievedFire.map(r => r.fireAge);
-      const finalPortfolios = simResults.map(r => r.finalPortfolio).sort((a, b) => a - b);
-      
-      // Success Rate: % that achieve FIRE
-      const successRate = (achievedFire.length / mcIterations) * 100;
-      
-      // Survival Rate: % that never deplete after retirement
+      const retirementYears = achievedFire.map(r => r.retirementYear).filter(y => y !== null);
+      const retirementAges = retirementYears.map(y => y - 1987);
+
+      // Overall Survival Rate: % that never deplete after retirement
       const retiredSims = simResults.filter(r => r.retirementYear !== null);
       const survivedSims = retiredSims.filter(r => !r.portfolioDepleted);
-      const survivalRate = retiredSims.length > 0 ? (survivedSims.length / retiredSims.length * 100) : 100;
-      
+      const overallSurvivalRate = retiredSims.length > 0 ? (survivedSims.length / retiredSims.length * 100) : 100;
+
+      // Calculate retirement year percentiles
+      const sortedRetirementYears = [...retirementYears].sort((a, b) => a - b);
+      const retirementPercentiles = [10, 25, 50, 75, 90].map(percentile => {
+        if (sortedRetirementYears.length === 0) return null;
+
+        const year = Math.round(calculatePercentile(sortedRetirementYears, percentile));
+        const age = year - 1987;
+
+        // Calculate survival rate for simulations that retired within ±1 year of this percentile
+        const simsNearThisYear = retiredSims.filter(r =>
+          r.retirementYear >= year - 1 && r.retirementYear <= year + 1
+        );
+        const survivedNearThisYear = simsNearThisYear.filter(r => !r.portfolioDepleted);
+        const survivalRate = simsNearThisYear.length > 0
+          ? (survivedNearThisYear.length / simsNearThisYear.length * 100)
+          : 100;
+
+        // Get portfolio value at retirement year
+        const retirementPortfolios = simsNearThisYear
+          .map(sim => {
+            const yearData = sim.timeline.find(t => t.year === year);
+            return yearData ? yearData.portfolio : 0;
+          })
+          .sort((a, b) => a - b);
+
+        const portfolioAtRetirement = retirementPortfolios.length > 0
+          ? calculatePercentile(retirementPortfolios, 50)
+          : 0;
+
+        // Get portfolio value at retirement end age
+        const finalYear = 1987 + mcRetirementEndAge;
+        const actualFinalAge = mcRetirementEndAge;
+
+        const finalPortfolios = simsNearThisYear
+          .map(sim => {
+            const yearData = sim.timeline.find(t => t.year === finalYear);
+            return yearData ? yearData.portfolio : 0;
+          })
+          .sort((a, b) => a - b);
+
+        const portfolioAtEndAge = finalPortfolios.length > 0
+          ? calculatePercentile(finalPortfolios, 50)
+          : 0;
+
+        return {
+          percentile,
+          year,
+          age,
+          survivalRate,
+          portfolioAtRetirement,
+          portfolioAtEndAge,
+          actualFinalAge
+        };
+      }).filter(p => p !== null);
+
       // Calculate percentiles for charting
       const yearlyPercentiles = {};
       for (const [year, portfolios] of Object.entries(yearlyResults)) {
@@ -1041,17 +1269,10 @@ export default function FIRECalculator() {
           p90: calculatePercentile(sorted, 90)
         };
       }
-      
+
       setMcResults({
-        successRate,
-        survivalRate,
-        medianFireYear: fireYears.length > 0 ? Math.round(calculatePercentile(fireYears.sort((a,b) => a-b), 50)) : null,
-        medianFireAge: fireAges.length > 0 ? Math.round(calculatePercentile(fireAges.sort((a,b) => a-b), 50)) : null,
-        fireYearP10: fireYears.length > 0 ? Math.round(calculatePercentile(fireYears.sort((a,b) => a-b), 10)) : null,
-        fireYearP90: fireYears.length > 0 ? Math.round(calculatePercentile(fireYears.sort((a,b) => a-b), 90)) : null,
-        finalPortfolioP10: calculatePercentile(finalPortfolios, 10),
-        finalPortfolioP50: calculatePercentile(finalPortfolios, 50),
-        finalPortfolioP90: calculatePercentile(finalPortfolios, 90),
+        overallSurvivalRate,
+        retirementPercentiles,
         yearlyPercentiles,
         allSimulations: simResults
       });
@@ -1085,103 +1306,148 @@ export default function FIRECalculator() {
   // USER INTERFACE
   // ============================================================================
   return (
-    <div className="w-full max-w-7xl mx-auto p-6 bg-white">
-      <h1 className="text-3xl font-bold mb-6 text-gray-800">FIRE Retirement Calculator</h1>
-      
+    <div className="w-full max-w-7xl mx-auto p-8 bg-white rounded-xl shadow-2xl">
+      <div className="mb-8 text-center">
+        <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-emerald-600 to-orange-600 bg-clip-text text-transparent">
+          FIRE Retirement Calculator
+        </h1>
+        <p className="text-gray-600 text-sm">
+          Financial Independence, Retire Early - Model your path to freedom
+        </p>
+      </div>
+
       {projections.fireYear && (
-        <div className="bg-blue-100 border-l-4 border-blue-500 p-4 mb-6">
-          <p className="text-lg font-semibold text-blue-800">
-            🎉 FIRE Achieved in {projections.fireYear.year}! 
+        <div className="bg-green-50 border-l-4 border-green-600 p-6 mb-6 rounded-r-lg">
+          <p className="text-2xl font-bold text-green-800 mb-2">
+            🎉 FIRE Achieved in {projections.fireYear.year}!
           </p>
-          <p className="text-base text-blue-700 mt-1">
+          <p className="text-lg text-green-700 mt-1">
             You'll be {projections.fireYear.year - 1987} and your spouse will be {projections.fireYear.year - 1989} ({projections.fireYear.year - currentYear} years from now)
           </p>
-          <p className="text-sm text-blue-600 mt-2">
+          <p className="text-base text-green-600 mt-3">
             Your portfolio will sustainably cover ${fireExpenseTarget.toLocaleString()} in annual expenses (inflation-adjusted) at a {withdrawalRate}% withdrawal rate, with sufficient funds reserved for any remaining college costs not covered by 529 accounts.
           </p>
         </div>
       )}
-      
+
       {projections.overfundingWarning && (
-        <div className="bg-yellow-100 border-l-4 border-yellow-500 p-4 mb-6">
-          <p className="text-sm text-yellow-800">{projections.overfundingWarning}</p>
+        <div className="bg-amber-50 border-l-4 border-amber-500 p-4 mb-6 rounded-r-lg">
+          <p className="text-sm text-amber-800">{projections.overfundingWarning}</p>
         </div>
       )}
       
       {mcResults && (
-        <div className="bg-blue-100 border-l-4 border-blue-500 p-4 mb-6">
-          <p className="text-lg font-semibold text-blue-800">Monte Carlo Results ({mcIterations} simulations with withdrawal phase)</p>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-2">
-            <div>
-              <div className="text-sm text-blue-700">FIRE Success Rate</div>
-              <div className="text-xl font-bold">{mcResults.successRate.toFixed(1)}%</div>
-              <div className="text-xs text-blue-600">Achieve FIRE</div>
-            </div>
-            <div>
-              <div className="text-sm text-blue-700">Portfolio Survival</div>
-              <div className="text-xl font-bold">{mcResults.survivalRate.toFixed(1)}%</div>
-              <div className="text-xs text-blue-600">Never runs out</div>
-            </div>
-            <div>
-              <div className="text-sm text-blue-700">Median FIRE Year</div>
-              <div className="text-xl font-bold">{mcResults.medianFireYear || 'N/A'}</div>
-              <div className="text-xs text-blue-600">50th percentile</div>
-            </div>
-            <div>
-              <div className="text-sm text-blue-700">FIRE Age Range</div>
-              <div className="text-lg font-bold">
-                {mcResults.fireYearP10 ? `${mcResults.fireYearP10 - 1987}-${mcResults.fireYearP90 - 1987}` : 'N/A'}
-              </div>
-              <div className="text-xs text-blue-600">10th-90th %ile</div>
-            </div>
-            <div>
-              <div className="text-sm text-blue-700">Final (Median)</div>
-              <div className="text-lg font-bold">${(mcResults.finalPortfolioP50 / 1000000).toFixed(2)}M</div>
-              <div className="text-xs text-blue-600">At age 78</div>
+        <div className="bg-blue-50 border-l-4 border-blue-600 p-6 mb-6 rounded-r-lg">
+          <p className="text-2xl font-bold text-blue-800 mb-4">📊 Monte Carlo Results ({mcIterations.toLocaleString()} simulations)</p>
+
+          <div className="mb-4">
+            <div className="text-base font-semibold text-blue-700 mb-3">Retirement Timeline:</div>
+            <div className="space-y-2">
+              {mcResults.retirementPercentiles.map(p => {
+                const meetsTarget = p.survivalRate >= mcTargetSurvival;
+                return (
+                  <div key={p.percentile} className={`grid grid-cols-1 gap-1 text-sm p-2 rounded ${meetsTarget ? 'bg-green-50 border-l-2 border-green-500' : ''}`}>
+                    <div className="text-blue-800">
+                      <span className="font-semibold">
+                        {p.percentile === 10 ? '10th percentile (optimistic):' :
+                         p.percentile === 25 ? '25th percentile:' :
+                         p.percentile === 50 ? '50th percentile (median):' :
+                         p.percentile === 75 ? '75th percentile:' :
+                         '90th percentile (pessimistic):'}
+                      </span>
+                      {' '}{p.year} (age {p.age} with ${(p.portfolioAtRetirement / 1000000).toFixed(2)}M)
+                      {meetsTarget && <span className="ml-2 text-green-600 font-semibold">✓</span>}
+                    </div>
+                    <div className="text-blue-700 ml-4">
+                      → {p.survivalRate.toFixed(1)}% survival • ${(p.portfolioAtEndAge / 1000000).toFixed(2)}M at age {p.actualFinalAge}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
+
+          <div className="pt-3 border-t border-blue-300">
+            <div className="text-base text-blue-800">
+              <span className="font-semibold">Overall Portfolio Survival:</span> {mcResults.overallSurvivalRate.toFixed(1)}% never run out of money
+            </div>
+          </div>
+
           <div className="text-xs text-blue-600 mt-3">
-            Simulation includes both accumulation (working) and withdrawal (retired) phases. Success = achieve FIRE target. Survival = portfolio lasts through 2065 after retirement. Rental income continues throughout retirement.
+            Simulation models market volatility through accumulation and withdrawal phases. "Survival" means portfolio lasts until age {mcRetirementEndAge}. Includes rental income, Social Security, and withdrawal taxes.
           </div>
         </div>
       )}
-      
-      <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-        <h3 className="text-lg font-semibold mb-3 text-gray-700">Monte Carlo Simulation</h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <label className="flex items-center space-x-2">
+
+      <div className="mb-6 p-4 bg-gradient-to-br from-orange-50 to-red-50 rounded-lg border border-orange-300">
+        <h3 className="text-lg font-semibold mb-3 text-orange-900">🎲 Monte Carlo Simulation</h3>
+        <p className="text-xs text-orange-800 mb-3">Model uncertainty by running thousands of scenarios with random market returns</p>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <label className="flex items-center space-x-2 cursor-pointer">
             <input
               type="checkbox"
               checked={mcEnabled}
               onChange={(e) => setMcEnabled(e.target.checked)}
               className="w-4 h-4"
             />
-            <span className="text-sm">Enable Monte Carlo</span>
+            <span className="text-sm font-medium">Enable Monte Carlo</span>
           </label>
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Iterations</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1" data-tooltip="More iterations = more accurate, but slower">
+              Iterations 🔢
+            </label>
             <select
               value={mcIterations}
               onChange={(e) => setMcIterations(Number(e.target.value))}
               disabled={!mcEnabled}
-              className="w-full px-2 py-1 border rounded text-sm"
+              className="w-full px-2 py-1 border rounded-lg text-sm"
             >
-              <option value={500}>500</option>
+              <option value={500}>500 (Fast)</option>
               <option value={1000}>1,000</option>
               <option value={2000}>2,000</option>
-              <option value={5000}>5,000</option>
+              <option value={5000}>5,000 (Slow)</option>
             </select>
           </div>
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Volatility (%)</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1" data-tooltip="Standard deviation of annual returns. 15% is typical for stocks">
+              Volatility (%) 📈
+            </label>
             <input
               type="number"
               value={mcVolatility}
               onChange={(e) => setMcVolatility(Number(e.target.value))}
               disabled={!mcEnabled}
-              className="w-full px-2 py-1 border rounded text-sm"
+              className="w-full px-2 py-1 border rounded-lg text-sm"
               min="5"
               max="30"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1" data-tooltip="Minimum acceptable survival rate for your worst-case scenario">
+              Target Survival (%) 🎯
+            </label>
+            <input
+              type="number"
+              value={mcTargetSurvival}
+              onChange={(e) => setMcTargetSurvival(Number(e.target.value))}
+              disabled={!mcEnabled}
+              className="w-full px-2 py-1 border rounded-lg text-sm"
+              min="50"
+              max="99"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1" data-tooltip="Age at which retirement planning ends. Used to measure final portfolio values and survival rates.">
+              Retirement End Age 🏁
+            </label>
+            <input
+              type="number"
+              value={mcRetirementEndAge}
+              onChange={(e) => setMcRetirementEndAge(Number(e.target.value))}
+              disabled={!mcEnabled}
+              className="w-full px-2 py-1 border rounded-lg text-sm"
+              min="70"
+              max="110"
             />
           </div>
           <button
@@ -1195,8 +1461,8 @@ export default function FIRECalculator() {
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
-        <div className="bg-blue-50 p-4 rounded-lg">
-          <h2 className="text-lg font-semibold mb-3 text-gray-700">Current Status</h2>
+        <div className="bg-gradient-to-br from-teal-50 to-cyan-50 p-4 rounded-lg border border-teal-200">
+          <h2 className="text-lg font-semibold mb-3 text-teal-900">Current Status</h2>
           <div className="space-y-2">
             <div>
               <label className="block text-sm text-gray-600">Initial Savings (2025 $)</label>
@@ -1249,53 +1515,111 @@ export default function FIRECalculator() {
           </div>
         </div>
         
-        <div className="bg-green-50 p-4 rounded-lg">
-          <h2 className="text-lg font-semibold mb-3 text-gray-700">FIRE Target</h2>
-          <div className="space-y-2">
+        <div className="bg-gradient-to-br from-emerald-50 to-green-50 p-4 rounded-lg border border-emerald-300">
+          <h2 className="text-lg font-semibold mb-3 text-emerald-900">🎯 FIRE Target</h2>
+          <div className="space-y-3">
             <div>
-              <label className="block text-sm text-gray-600">Target Annual Spending (inflates)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1" data-tooltip="Your total desired annual expenses in retirement: housing, food, travel, property taxes, insurance, etc. The calculator will automatically reduce your required portfolio withdrawals by passive income (rental property, Social Security). College costs and healthcare buffer are calculated separately. Adjusted for inflation each year.">
+                Target Annual Spending 💰
+              </label>
               <input
                 type="number"
                 value={fireExpenseTarget}
                 onChange={(e) => setFireExpenseTarget(Number(e.target.value))}
-                className="w-full px-3 py-1 border rounded"
+                className="w-full px-3 py-2 border rounded-lg"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">Safe Withdrawal Rate (%)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1" data-tooltip="Percentage of portfolio withdrawn annually. 3.5% is conservative for long retirements, 4% is the traditional rule">
+                Safe Withdrawal Rate (%) 📊
+              </label>
               <input
                 type="number"
                 step="0.1"
                 value={withdrawalRate}
                 onChange={(e) => setWithdrawalRate(Number(e.target.value))}
-                className="w-full px-3 py-1 border rounded"
+                className="w-full px-3 py-2 border rounded-lg"
+                min="2"
+                max="6"
               />
             </div>
-            <label className="flex items-center space-x-2 mt-3">
+            <label className="flex items-center space-x-2 mt-3 cursor-pointer">
               <input
                 type="checkbox"
                 checked={includeHealthcareBuffer}
                 onChange={(e) => setIncludeHealthcareBuffer(e.target.checked)}
                 className="w-4 h-4"
               />
-              <span className="text-sm">Include Healthcare Buffer</span>
+              <span className="text-sm font-medium" data-tooltip="Add extra buffer for healthcare costs before Medicare eligibility at 65">
+                Include Healthcare Buffer 🏥
+              </span>
             </label>
             {includeHealthcareBuffer && (
               <div>
-                <label className="block text-sm text-gray-600">Annual Healthcare Cost (until Medicare at 65)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Annual Healthcare Cost (until age 65)</label>
                 <input
                   type="number"
                   value={annualHealthcareCost}
                   onChange={(e) => setAnnualHealthcareCost(Number(e.target.value))}
-                  className="w-full px-3 py-1 border rounded"
+                  className="w-full px-3 py-2 border rounded-lg"
                 />
               </div>
             )}
+
+            <div className="mt-4 pt-4 border-t border-emerald-200">
+              <h3 className="text-sm font-semibold text-emerald-800 mb-2" data-tooltip="Research shows real spending typically declines with age (Bengen's Prosperous Retirement model)">
+                📉 Spending Decrement in Retirement
+              </h3>
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1" data-tooltip="Annual percentage decrease in real spending from age 65-74 (0% = no change)">
+                    Age 65-74 decrement (%/year)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={spendingDecrement65to74}
+                    onChange={(e) => setSpendingDecrement65to74(Number(e.target.value))}
+                    className="w-full px-2 py-1 border rounded-lg text-sm"
+                    min="0"
+                    max="5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1" data-tooltip="Annual percentage decrease in real spending from age 75-84">
+                    Age 75-84 decrement (%/year)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={spendingDecrement75to84}
+                    onChange={(e) => setSpendingDecrement75to84(Number(e.target.value))}
+                    className="w-full px-2 py-1 border rounded-lg text-sm"
+                    min="0"
+                    max="5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1" data-tooltip="Annual percentage decrease in real spending from age 85 onward">
+                    Age 85+ decrement (%/year)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={spendingDecrement85plus}
+                    onChange={(e) => setSpendingDecrement85plus(Number(e.target.value))}
+                    className="w-full px-2 py-1 border rounded-lg text-sm"
+                    min="0"
+                    max="5"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         
-        <div className="bg-purple-50 p-4 rounded-lg">
-          <h2 className="text-lg font-semibold mb-3 text-gray-700">Investment Returns</h2>
+        <div className="bg-gradient-to-br from-red-50 to-rose-50 p-4 rounded-lg border border-red-200">
+          <h2 className="text-lg font-semibold mb-3 text-red-900">Investment Returns</h2>
           <div className="space-y-2">
             <div>
               <label className="block text-sm text-gray-600">Tax-Advantaged Return (%)</label>
@@ -1324,7 +1648,7 @@ export default function FIRECalculator() {
       <details className="mb-6">
         <summary className="cursor-pointer font-semibold text-lg mb-2 text-gray-700">Income & Career Timeline</summary>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-3">
-          <div className="bg-yellow-50 p-4 rounded-lg">
+          <div className="bg-gradient-to-br from-orange-50 to-amber-50 p-4 rounded-lg border border-orange-200">
             <h3 className="font-semibold mb-2">Spouse Income</h3>
             <div className="space-y-2">
               <div>
@@ -1349,7 +1673,7 @@ export default function FIRECalculator() {
             </div>
           </div>
           
-          <div className="bg-yellow-50 p-4 rounded-lg">
+          <div className="bg-gradient-to-br from-orange-50 to-amber-50 p-4 rounded-lg border border-orange-200">
             <h3 className="font-semibold mb-2">My Career Timeline</h3>
             <div className="space-y-2">
               <div>
@@ -1442,7 +1766,7 @@ export default function FIRECalculator() {
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-3">
-          <div className="bg-yellow-50 p-4 rounded-lg">
+          <div className="bg-gradient-to-br from-orange-50 to-amber-50 p-4 rounded-lg border border-orange-200">
             <h3 className="font-semibold mb-2">Social Security - Me</h3>
             <div className="space-y-2">
               <div>
@@ -1455,18 +1779,20 @@ export default function FIRECalculator() {
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-600">Start Year</label>
+                <label className="block text-sm text-gray-600">Start Age</label>
                 <input
                   type="number"
-                  value={mySocialSecurityStartYear}
-                  onChange={(e) => setMySocialSecurityStartYear(Number(e.target.value))}
+                  value={mySocialSecurityStartAge}
+                  onChange={(e) => setMySocialSecurityStartAge(Number(e.target.value))}
                   className="w-full px-3 py-1 border rounded"
+                  min="62"
+                  max="70"
                 />
               </div>
             </div>
           </div>
-          
-          <div className="bg-yellow-50 p-4 rounded-lg">
+
+          <div className="bg-gradient-to-br from-orange-50 to-amber-50 p-4 rounded-lg border border-orange-200">
             <h3 className="font-semibold mb-2">Social Security - Spouse</h3>
             <div className="space-y-2">
               <div>
@@ -1479,12 +1805,14 @@ export default function FIRECalculator() {
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-600">Start Year</label>
+                <label className="block text-sm text-gray-600">Start Age</label>
                 <input
                   type="number"
-                  value={spouseSocialSecurityStartYear}
-                  onChange={(e) => setSpouseSocialSecurityStartYear(Number(e.target.value))}
+                  value={spouseSocialSecurityStartAge}
+                  onChange={(e) => setSpouseSocialSecurityStartAge(Number(e.target.value))}
                   className="w-full px-3 py-1 border rounded"
+                  min="62"
+                  max="70"
                 />
               </div>
             </div>
@@ -1492,7 +1820,7 @@ export default function FIRECalculator() {
         </div>
         
         <div className="text-xs text-gray-500 mt-2 p-2 bg-white rounded border">
-          💼 <strong>Cravath Scale 2025:</strong> 1st: $225k, 2nd: $235k, 3rd: $260k, 4th: $305k, 5th: $340k, 6th: $365k, 7th: $410k, 8th: $420k
+          💼 <strong>Cravath Scale 2025 (total comp):</strong> 1st: $245k, 2nd: $260k, 3rd: $295k, 4th: $360k, 5th: $415k, 6th: $455k, 7th: $525k, 8th: $535k
         </div>
       </details>
       
