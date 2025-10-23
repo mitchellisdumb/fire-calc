@@ -1,5 +1,5 @@
 import './App.css'
-import FireCalculator from './fire-calculator'
+import FireCalculator from './components/calculator/FIRECalculator'
 
 export default function App() {
   return (

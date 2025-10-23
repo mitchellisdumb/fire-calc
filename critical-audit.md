@@ -69,8 +69,8 @@ $100k wages (2 x $50k):
 ```
 
 ### 5. FIRE Target Calculation
-- ✅ Basic calculation: Expenses / (Withdrawal Rate / 100)
-- ✅ Example: $135k / 3.5% = $3,857,142.86 ✓
+- ✅ Basic calculation: Expenses × targetPortfolioMultiple
+- ✅ Example: $135k × 25 = $3,375,000 ✓
 - ✅ Healthcare buffer calculation correct
 - ✅ College reserve properly calculated forward-looking
 

@@ -30,27 +30,25 @@ npm run lint         # Run ESLint
 - **React 19**: UI framework with functional components and hooks
 - **Vite**: Build tool and dev server
 - **Recharts**: Chart library for visualizations (LineChart, AreaChart)
-- **TypeScript**: Main calculator component (fire-calculator.tsx)
+- **TypeScript**: Domain logic (`src/domain`), state hooks (`src/hooks`), and modular calculator components (`src/components/calculator`)
 
 ### File Structure
 ```
 src/
-├── main.jsx              # React entry point
-├── App.jsx               # Root component (simple wrapper)
-├── fire-calculator.tsx   # Main calculator component (~1745 lines)
-├── App.css               # App-specific styles
-└── index.css             # Global styles
+├── main.jsx                       # React entry point
+├── App.jsx                        # Root component (renders calculator shell)
+├── components/
+│   └── calculator/                # UI surface split into focused components
+├── domain/                        # Financial math and simulation helpers
+├── hooks/                         # Shared React hooks (useCalculatorConfig)
+├── App.css                        # App-specific styles
+└── index.css                      # Global styles
+tests/
+└── domain/                        # Vitest coverage for core financial logic
 ```
 
-### Single Component Design
-The entire calculator logic resides in `src/fire-calculator.tsx` as a monolithic component. This is intentional—the calculator performs a single cohesive calculation with ~40 interdependent state variables.
-
-**Key sections in fire-calculator.tsx:**
-1. **State declarations (lines 1-170)**: ~40 useState hooks for user inputs
-2. **Helper functions (lines 172-250)**: Cravath scale lookup, mortgage interest calculation
-3. **Main projection (useMemo)**: Year-by-year deterministic calculation (2025-2065)
-4. **Monte Carlo simulation**: Probabilistic modeling with accumulation + withdrawal phases
-5. **UI rendering**: Form inputs and chart visualization
+### Modular Calculator Design
+Stateful form management lives in `useCalculatorConfig`, domain helpers reside in `src/domain`, and presentation components under `src/components/calculator` compose the UI. The architecture separates pure financial calculations from React rendering, making the Monte Carlo and projection engines directly testable.
 
 ## Critical Implementation Details
 
@@ -166,7 +164,7 @@ Simulations wrapped in `setTimeout(..., 100)` to avoid blocking UI thread. "Runn
 
 The FIRE target is calculated in the main projection loop. Current formula:
 ```javascript
-fireTarget = (fireExpenseTarget × inflationFactor) / (withdrawalRate / 100)
+fireTarget = (fireExpenseTarget × inflationFactor × targetPortfolioMultiple)
            + collegeReserveNeeded
            + healthcareBuffer
 ```
@@ -203,7 +201,7 @@ Federal and California tax brackets are hardcoded in the projection loop. To upd
 
 ### Extending Monte Carlo
 
-The Monte Carlo simulation code is in the `runMonteCarloSimulation` function. Key extension points:
+The Monte Carlo simulations now live in two helpers: `runAccumulationMonteCarlo` (readiness timing) and `runWithdrawalMonteCarlo` (retirement longevity). Key extension points:
 
 **To change return distribution:**
 Modify the `generateNormalReturn()` helper function. Current implementation uses normal distribution; could be changed to log-normal, historical returns, etc.
@@ -216,10 +214,16 @@ Track desired metric in simulation loop, then calculate percentiles at end along
 
 ## State Management
 
-### No External State Library
-All state is managed via React's `useState` hooks (~40 state variables). This is intentional:
-- Single component eliminates prop drilling
-- No complex data flow patterns needed
+### Shared Inputs via Custom Hook
+The `useCalculatorConfig` hook centralizes shared inputs (savings, income, targets) and exposes derived values such as the withdrawal rate implied by the target multiple. UI components consume this hook rather than managing their own copies of the same fields.
+
+### Two-Phase UI Composition
+- `PreRetirementPanel` focuses on accumulation readiness, Monte Carlo percentiles, and selecting the scenario to link to withdrawal planning.
+- `PostRetirementPanel` evaluates withdrawal durability, toggling between linked and manual scenarios while reporting survival metrics.
+
+### Domain Module Responsibilities
+- `projection.ts`: deterministic cash-flow model that feeds both panels.
+- `monteCarlo.ts`: exports `runAccumulationMonteCarlo` and `runWithdrawalMonteCarlo` so the phases can simulate independently.
 - Calculation dependencies are explicit via `useMemo` dependency array
 
 ### Performance: useMemo Dependency Array
@@ -270,18 +274,15 @@ Different categories use different inflation rates:
 
 ## Testing Strategy
 
-**No automated tests currently.** To verify changes:
-
-1. **Known scenario testing**: Use default values (represents real scenario), verify FIRE year is reasonable
-2. **Boundary testing**: Set extreme values (e.g., $0 expenses, 100% withdrawal rate), ensure no crashes
-3. **Phase transition testing**: Verify income changes correctly at BigLaw start, clerking start/end, public interest start
-4. **Monte Carlo validation**: Run 100 simulations, verify success/survival rates are between 0-100%
-5. **Tax calculation spot-check**: Use online tax calculator to verify federal/state tax for a sample year
+- **Vitest suite**: Automated coverage under `tests/domain` exercises mortgage amortization, tax brackets, deterministic projections, and Monte Carlo statistics. Run with `npm run test`.
+- **Component testing**: Testing Library (`@testing-library/react`) is installed; create specs under `tests/components` when UI behaviour needs coverage.
+- **Scenario validation**: When assumptions change, update fixtures and extend tests instead of manual console scripts.
+- **Regression focus**: Add targeted specs for new financial rules (e.g., additional career phases or account types) to keep projections stable.
 
 ## Code Style Notes
 
 - **ESLint configuration**: See `eslint.config.js`
 - **Unused vars pattern**: `^[A-Z_]` ignored (allows React component constants)
-- **TypeScript**: Only fire-calculator.tsx uses TypeScript; rest of app is JSX
-- **Comments**: Extensive inline documentation explaining financial concepts
-- **State organization**: Grouped by category (Current Status, Living Expenses, Income, etc.) with header comments
+- **TypeScript**: Shared across domain modules, hooks, and calculator components; `.tsx` files live in `src/components`
+- **Comments**: Use concise comments to explain financial assumptions rather than React mechanics
+- **State organization**: Managed centrally by `useCalculatorConfig`, keeping UI components presentational

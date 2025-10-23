@@ -626,8 +626,8 @@ Visualization (Recharts)
 **To modify FIRE target formula:**
 Locate the "CALCULATE FIRE TARGET" section in the projection loop. The current formula is:
 ```javascript
-fireTarget = (fireExpenseTarget × inflationFactor) / (withdrawalRate / 100) 
-           + collegeReserveNeeded 
+fireTarget = (fireExpenseTarget × inflationFactor × targetPortfolioMultiple)
+           + collegeReserveNeeded
            + healthcareBuffer
 ```
 Add your component to this calculation.
