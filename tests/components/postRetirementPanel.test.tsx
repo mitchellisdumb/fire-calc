@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import PostRetirementPanel from '../../src/components/calculator/PostRetirementPanel';
-import { RetirementScenario, WithdrawalMonteCarloResult } from '../../src/domain/types';
+import { RetirementScenario, WithdrawalMonteCarloResult, ProjectionResult } from '../../src/domain/types';
 
 const linkedScenario: RetirementScenario = {
   year: 2044,
@@ -23,6 +23,94 @@ const withdrawalResult: WithdrawalMonteCarloResult = {
   allSimulations: [],
 };
 
+const makeProjection = (): ProjectionResult => ({
+  years: [
+    {
+      year: 2044,
+      myIncome: 250000,
+      spouseIncome: 210000,
+      socialSecurityIncome: 0,
+      totalIncome: 460000,
+      federalTax: 100000,
+      stateTax: 40000,
+      ficaTax: 16000,
+      totalTax: 156000,
+      effectiveRate: '33.9',
+      netIncome: 304000,
+      tuition: 0,
+      expenses: 160000,
+      contribution529: 0,
+      daughter1CollegeCost: 0,
+      daughter2CollegeCost: 0,
+      college529Shortfall: 0,
+      totalExpenses: 160000,
+      rentalNetCashFlow: 30000,
+      mortgageInterest: 0,
+      rentalInsurance: 0,
+      adjustedRentalIncome: 0,
+      netSavings: 144000,
+      taxAdvContribution: 60000,
+      taxableContribution: 50000,
+      taxableWithdrawal: 0,
+      portfolioGrowth: 100000,
+      portfolio: 2400000,
+      taxAdvPortfolio: 1800000,
+      taxablePortfolio: 700000,
+      daughter1_529: 0,
+      daughter2_529: 0,
+      total529: 0,
+      sustainableWithdrawal: 100000,
+      fireTarget: 2400000,
+      collegeReserveNeeded: 0,
+      healthcareBuffer: 0,
+      isFIRE: true,
+      deficit: false,
+    },
+  ],
+  fireYear: {
+    year: 2044,
+    myIncome: 250000,
+    spouseIncome: 210000,
+    socialSecurityIncome: 0,
+    totalIncome: 460000,
+    federalTax: 100000,
+    stateTax: 40000,
+    ficaTax: 16000,
+    totalTax: 156000,
+    effectiveRate: '33.9',
+    netIncome: 304000,
+    tuition: 0,
+    expenses: 160000,
+    contribution529: 0,
+    daughter1CollegeCost: 0,
+    daughter2CollegeCost: 0,
+    college529Shortfall: 0,
+    totalExpenses: 160000,
+    rentalNetCashFlow: 30000,
+    mortgageInterest: 0,
+    rentalInsurance: 0,
+    adjustedRentalIncome: 0,
+    netSavings: 144000,
+    taxAdvContribution: 60000,
+    taxableContribution: 50000,
+    taxableWithdrawal: 0,
+    portfolioGrowth: 100000,
+    portfolio: 2400000,
+    taxAdvPortfolio: 1800000,
+    taxablePortfolio: 700000,
+    daughter1_529: 0,
+    daughter2_529: 0,
+    total529: 0,
+    sustainableWithdrawal: 100000,
+    fireTarget: 2400000,
+    collegeReserveNeeded: 0,
+    healthcareBuffer: 0,
+    isFIRE: true,
+    deficit: false,
+  },
+  overfundingWarning: null,
+});
+
 describe('PostRetirementPanel', () => {
   it('disables fields when linked mode is active', () => {
     render(
@@ -37,6 +125,8 @@ describe('PostRetirementPanel', () => {
         successThreshold={90}
         mcEnabled
         mcRunning={false}
+        projections={makeProjection()}
+        derivedWithdrawalRate={4}
       />,
     );
 
@@ -60,6 +150,8 @@ describe('PostRetirementPanel', () => {
         successThreshold={90}
         mcEnabled
         mcRunning={false}
+        projections={makeProjection()}
+        derivedWithdrawalRate={4}
       />,
     );
 

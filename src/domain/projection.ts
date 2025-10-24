@@ -76,8 +76,8 @@ export function buildProjections(inputs: CalculatorInputs): ProjectionResult {
     .div(100)
   let taxablePortfolio = dec(initialSavings).mul(initialTaxablePct).div(100)
   // 529 accounts are tracked per child to make over-funding warnings simpler.
-  let daughter1_529 = initial529Balance / 2;
-  let daughter2_529 = initial529Balance / 2;
+  let daughter1_529 = dec(initial529Balance).div(2);
+  let daughter2_529 = dec(initial529Balance).div(2);
   let fireAchieved = false;
   let fireYear: number | null = null;
   let overfundingWarning: string | null = null;
@@ -269,10 +269,10 @@ export function buildProjections(inputs: CalculatorInputs): ProjectionResult {
     // 529 balances continue compounding while the beneficiary is under 22. We use
     // the tax-advantaged growth rate because the accounts are tax-sheltered.
     if (daughterAge1 < 22) {
-      daughter1_529 = daughter1_529 * (1 + taxAdvReturnRate / 100);
+      daughter1_529 = daughter1_529.mul(dec(1).add(dec(taxAdvReturnRate).div(100)));
     }
     if (daughterAge2 < 22) {
-      daughter2_529 = daughter2_529 * (1 + taxAdvReturnRate / 100);
+      daughter2_529 = daughter2_529.mul(dec(1).add(dec(taxAdvReturnRate).div(100)));
     }
 
     // Net savings before 529 contributions determines how much cash flow we have
@@ -300,8 +300,8 @@ export function buildProjections(inputs: CalculatorInputs): ProjectionResult {
       if (totalContributionNeeded > 0) {
         const d1Share = d1Contribution / totalContributionNeeded;
         const d2Share = d2Contribution / totalContributionNeeded;
-        daughter1_529 += actual529Contribution * d1Share;
-        daughter2_529 += actual529Contribution * d2Share;
+        daughter1_529 = daughter1_529.add(actual529Contribution * d1Share);
+        daughter2_529 = daughter2_529.add(actual529Contribution * d2Share);
       }
     }
 
@@ -310,20 +310,20 @@ export function buildProjections(inputs: CalculatorInputs): ProjectionResult {
     let college529Shortfall = 0;
 
     if (daughter1CollegeCost > 0) {
-      if (daughter1_529 >= daughter1CollegeCost) {
-        daughter1_529 -= daughter1CollegeCost;
+      if (daughter1_529.greaterThanOrEqualTo(daughter1CollegeCost)) {
+        daughter1_529 = daughter1_529.sub(daughter1CollegeCost);
       } else {
-        college529Shortfall += daughter1CollegeCost - daughter1_529;
-        daughter1_529 = 0;
+        college529Shortfall += daughter1CollegeCost - toNumber(daughter1_529);
+        daughter1_529 = dec(0);
       }
     }
 
     if (daughter2CollegeCost > 0) {
-      if (daughter2_529 >= daughter2CollegeCost) {
-        daughter2_529 -= daughter2CollegeCost;
+      if (daughter2_529.greaterThanOrEqualTo(daughter2CollegeCost)) {
+        daughter2_529 = daughter2_529.sub(daughter2CollegeCost);
       } else {
-        college529Shortfall += daughter2CollegeCost - daughter2_529;
-        daughter2_529 = 0;
+        college529Shortfall += daughter2CollegeCost - toNumber(daughter2_529);
+        daughter2_529 = dec(0);
       }
     }
 
@@ -411,11 +411,11 @@ export function buildProjections(inputs: CalculatorInputs): ProjectionResult {
           const futureYear = daughter1Birth + age;
           const contribution = futureYear <= 2027 ? 0 : annual529Contribution;
           future529Balance =
-            future529Balance * (1 + taxAdvReturnRate / 100) + contribution;
+            future529Balance.mul(dec(1).add(dec(taxAdvReturnRate).div(100))).add(contribution);
         }
       }
 
-      collegeReserveNeeded += Math.max(0, futureCollegeCosts - future529Balance);
+      collegeReserveNeeded += Math.max(0, futureCollegeCosts - toNumber(future529Balance));
     }
 
     // Repeat the same future reserve logic for the second child.
@@ -437,11 +437,11 @@ export function buildProjections(inputs: CalculatorInputs): ProjectionResult {
           const futureYear = daughter2Birth + age;
           const contribution = futureYear <= 2027 ? 0 : annual529Contribution;
           future529Balance =
-            future529Balance * (1 + taxAdvReturnRate / 100) + contribution;
+            future529Balance.mul(dec(1).add(dec(taxAdvReturnRate).div(100))).add(contribution);
         }
       }
 
-      collegeReserveNeeded += Math.max(0, futureCollegeCosts - future529Balance);
+      collegeReserveNeeded += Math.max(0, futureCollegeCosts - toNumber(future529Balance));
     }
 
     const fireTargetExpenses = fireExpenseTarget * inflationFactor;
@@ -505,9 +505,9 @@ export function buildProjections(inputs: CalculatorInputs): ProjectionResult {
       portfolio: Math.round(toNumber(totalPortfolio)),
       taxAdvPortfolio: Math.round(toNumber(taxAdvPortfolio)),
       taxablePortfolio: Math.round(toNumber(taxablePortfolio)),
-      daughter1_529: Math.round(daughter1_529),
-      daughter2_529: Math.round(daughter2_529),
-      total529: Math.round(daughter1_529 + daughter2_529),
+      daughter1_529: Math.round(toNumber(daughter1_529)),
+      daughter2_529: Math.round(toNumber(daughter2_529)),
+      total529: Math.round(toNumber(daughter1_529.add(daughter2_529))),
       sustainableWithdrawal: Math.round(toNumber(sustainableWithdrawalDec)),
       fireTarget: Math.round(toNumber(fireTargetDec)),
       collegeReserveNeeded: Math.round(collegeReserveNeeded),
