@@ -9,6 +9,9 @@ import {
 
 const CURRENT_YEAR = 2025
 
+// Default scenario representing the household we're modelling. Keeping the values
+// inline (rather than fetching from an API or config file) makes it obvious to a
+// reviewer which assumptions back the initial projections.
 const initialFormState: CalculatorForm = {
   currentYear: CURRENT_YEAR,
   initialSavings: 500000,
@@ -71,6 +74,8 @@ const initialFormState: CalculatorForm = {
   withdrawalRate: 4,
 }
 
+// Validate the seed data once during module initialisation. If the schema
+// constraints ever reject these defaults we want to fail fast during development.
 const initialValidated = convertFormToInput(initialFormState, CURRENT_YEAR)
 
 if (!initialValidated.success || !initialValidated.data) {
@@ -84,6 +89,9 @@ export function useCalculatorConfig() {
   )
   const [validationIssues, setValidationIssues] = useState<string[]>([])
 
+  // Consumers call updateField whenever an input changes. We allow temporarily
+  // invalid data (e.g., blank fields) so the UI feels responsive, but we keep a
+  // running list of validation issues to display alongside the form.
   const updateField = useCallback(
     <Key extends keyof CalculatorForm>(key: Key, value: CalculatorForm[Key]) => {
       setState((prev) => {
@@ -103,24 +111,28 @@ export function useCalculatorConfig() {
     [],
   )
 
-  const safeTargetMultiple = Number.isFinite(state.targetPortfolioMultiple)
-    ? Math.max(state.targetPortfolioMultiple, 1)
-    : 1
-  const derivedWithdrawalRate = useMemo(
-    () => (safeTargetMultiple > 0 ? 100 / safeTargetMultiple : 0),
-    [safeTargetMultiple],
-  )
+  // Withdrawal rate is 100 / multiple, but only when the multiple is valid. This
+  // lets the UI highlight errors without silently substituting a different value.
+  const derivedWithdrawalRate = useMemo(() => {
+    const target = state.targetPortfolioMultiple
+    if (!Number.isFinite(target) || target <= 0) {
+      return 0
+    }
+    return 100 / target
+  }, [state.targetPortfolioMultiple])
 
   const rawInputs = useMemo(
     () => ({
       ...state,
       currentYear: CURRENT_YEAR,
-      targetPortfolioMultiple: safeTargetMultiple,
       withdrawalRate: derivedWithdrawalRate,
     }),
-    [state, safeTargetMultiple, derivedWithdrawalRate],
+    [state, derivedWithdrawalRate],
   )
 
+  // Convert into calculator-ready inputs whenever raw state changes. Successful
+  // conversions reset the validation messages; failures keep the last verified
+  // inputs while exposing the error list to the UI.
   useEffect(() => {
     const validation = convertFormToInput(rawInputs, CURRENT_YEAR)
     if (validation.success && validation.data) {
@@ -131,6 +143,8 @@ export function useCalculatorConfig() {
     }
   }, [rawInputs])
 
+  // Monte Carlo settings are memoised separately so components do not re-render
+  // when unrelated fields change (e.g., editing taxable return rate).
   const mcSettings = useMemo(
     () => ({
       enabled: state.mcEnabled,

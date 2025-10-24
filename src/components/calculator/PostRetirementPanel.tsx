@@ -19,6 +19,8 @@ interface PostRetirementPanelProps {
   mcRunning: boolean;
 }
 
+// Presents withdrawal-phase Monte Carlo results. Users can either link the
+// pre-retirement scenario or override the start year/portfolio manually.
 export default function PostRetirementPanel({
   linkedMode,
   onToggleLinked,
@@ -34,9 +36,13 @@ export default function PostRetirementPanel({
   const scenarioToShow = linkedMode ? linkedScenario : null;
   const manual = manualScenario;
 
+  // Success threshold is compared against the Monte Carlo survival probability to
+  // give immediate feedback (success ✅ vs. warning ⚠️).
   const survivalGood =
     withdrawalResult && withdrawalResult.survivalProbability >= successThreshold;
 
+  // Sampling every third year keeps the percentile table compact while still
+  // showing how the distribution evolves through retirement.
   const yearlyRows = withdrawalResult
     ? Object.entries(withdrawalResult.yearlyPercentiles)
         .map(([year, values]) => ({ year: Number(year), values }))

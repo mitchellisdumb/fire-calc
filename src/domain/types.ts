@@ -1,3 +1,6 @@
+// Core input shape consumed by the projection and Monte Carlo engines. Mirrors
+// the form state (see CalculatorForm) but excludes UI-only knobs so the domain
+// layer stays framework agnostic.
 export interface CalculatorInputs {
   currentYear: number;
   initialSavings: number;
@@ -55,6 +58,9 @@ export interface CalculatorInputs {
   spendingDecrement85plus: number;
 }
 
+// Snapshot for a single projection year. These values back both UI summaries and
+// Monte Carlo replays, so keep it comprehensive even if the UI does not yet show
+// every field.
 export interface ProjectionYear {
   year: number;
   myIncome: number;
@@ -103,6 +109,7 @@ export interface ProjectionResult {
   overfundingWarning: string | null;
 }
 
+// Monte Carlo configuration pulled from the UI.
 export interface MonteCarloSettings {
   iterations: number;
   volatility: number;
@@ -110,6 +117,7 @@ export interface MonteCarloSettings {
   retirementEndAge: number;
 }
 
+// Captures a single Monte Carlo timeline point (year, balance, basic flags).
 export interface SimulationTimelineEntry {
   year: number;
   portfolio: number;

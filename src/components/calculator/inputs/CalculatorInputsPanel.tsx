@@ -1,11 +1,15 @@
 import { useCallback, type ReactNode } from 'react';
 import { CalculatorFormState } from '../../../hooks/useCalculatorConfig';
 
+// Reusable type describing the setter exposed by useCalculatorConfig. Having it
+// here keeps the component generic and prevents us from hard-coding field names.
 type UpdateField = <Key extends keyof CalculatorFormState>(
   key: Key,
   value: CalculatorFormState[Key],
 ) => void;
 
+// Shared currency formatter: renders `$` + comma separators while allowing blank
+// states. We centralise this to ensure all currency fields look consistent.
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
@@ -13,6 +17,8 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 });
 
+// Fields that should display as currency; everything else stays as plain numeric
+// input (percentage, year, etc.).
 const currencyFields: Array<keyof CalculatorFormState> = [
   'initialSavings',
   'monthlyExpenses',
@@ -42,6 +48,9 @@ const currencyFields: Array<keyof CalculatorFormState> = [
 
 const currencyFieldSet = new Set(currencyFields);
 
+// Tooltips map form fields to audit-friendly explanations so reviewers understand
+// why each slider/input matters. We include the Monte Carlo toggles and special
+// checkboxes as “virtual” keys.
 type TooltipKey = keyof CalculatorFormState | 'includeHealthcareBuffer' | 'mcEnabled';
 
 const fieldTooltips: Partial<Record<TooltipKey, string>> = {
@@ -118,6 +127,8 @@ const TooltipIcon = ({ field }: { field: TooltipKey }) => {
   );
 };
 
+// Wrapper to render a label + tooltip icon. Keeps the JSX below concise and makes
+// it obvious which tooltip copy maps to which field.
 const FieldLabel = ({
   field,
   text,
@@ -135,6 +146,7 @@ const FieldLabel = ({
   </label>
 );
 
+// Variant for checkbox-style controls (include healthcare buffer, MC toggle).
 const FieldCheckboxLabel = ({
   field,
   text,
@@ -153,9 +165,13 @@ const FieldCheckboxLabel = ({
   </label>
 );
 
+// Currency-formatted fields switch to text inputs so we can display `$` and commas
+// without fighting the browser’s numeric input restrictions.
 const getInputType = (key: keyof CalculatorFormState): 'number' | 'text' =>
   currencyFieldSet.has(key) ? 'text' : 'number';
 
+// Parse user input, tolerating $ and comma characters. Blank strings become NaN
+// so validation can flag the field while still showing the cleared value.
 const parseNumericInput = (value: string): number => {
   const trimmed = value.trim();
   if (trimmed === '') {
@@ -185,6 +201,8 @@ export default function CalculatorInputsPanel({
   mcRunning,
   onRunMonteCarlo,
 }: CalculatorInputsPanelProps) {
+  // Prepare display values (currency strings, blank when NaN) so the template
+  // below stays focused on layout rather than formatting details.
   const getDisplayValue = useCallback(
     <Key extends keyof CalculatorFormState>(key: Key) => {
       const rawValue = state[key];
@@ -257,6 +275,9 @@ export default function CalculatorInputsPanel({
     mcRetirementEndAge,
   } = state;
 
+  // Sections are grouped to mirror how the projection engine consumes inputs:
+  // current portfolio, expenses, FIRE targets, career timeline, etc. This layout
+  // helps auditors trace a field directly to the relevant domain module.
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
       {validationIssues.length > 0 && (

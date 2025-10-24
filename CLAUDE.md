@@ -4,9 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a FIRE (Financial Independence/Retire Early) retirement calculator built as a React single-page application. It models complex career trajectories—specifically BigLaw → Federal Clerking → BigLaw → Public Interest Law transitions—with comprehensive tax calculations, 529 college savings, rental property cash flow, and Monte Carlo simulation capabilities.
-
-See README.md for detailed feature documentation and rationale behind design decisions.
+This repository contains a two-stage Financial Independence/Retire Early (FIRE) planner built with React + Vite. It models a BigLaw → Federal Clerking → BigLaw → Public Interest trajectory, California-specific taxes, 529 plans, rental property cash flow, and Monte Carlo survival analysis. The interface presents shared inputs with linked Pre- and Post-Retirement tabs so users can reason about accumulation vs. withdrawal phases without re-entering data.
 
 ## Development Commands
 
@@ -26,178 +24,56 @@ npm run lint         # Run ESLint
 
 ## Architecture
 
-### Tech Stack
-- **React 19**: UI framework with functional components and hooks
-- **Vite**: Build tool and dev server
-- **Recharts**: Chart library for visualizations (LineChart, AreaChart)
-- **TypeScript**: Domain logic (`src/domain`), state hooks (`src/hooks`), and modular calculator components (`src/components/calculator`)
+### Tech Stack & Layout
+- **React 19 + Vite** for the SPA.
+- **TypeScript** in `src/domain` (financial logic), `src/hooks` (state orchestration), and `.tsx` components.
+- **Vitest + Testing Library** for domain/behaviour coverage.
+- **Decimal math** helpers in `src/domain/money.ts` prevent floating-point drift across projections and Monte Carlo.
+- UI is built from modular components in `src/components/calculator/` (inputs panel with tooltips, pre-/post-retirement results, Monte Carlo tab).
 
-### File Structure
 ```
 src/
-├── main.jsx                       # React entry point
-├── App.jsx                        # Root component (renders calculator shell)
-├── components/
-│   └── calculator/                # UI surface split into focused components
-├── domain/                        # Financial math and simulation helpers
-├── hooks/                         # Shared React hooks (useCalculatorConfig)
-├── App.css                        # App-specific styles
-└── index.css                      # Global styles
+  App.jsx / main.jsx
+  components/calculator/  # FIRECalculator.tsx + panels/inputs
+  domain/                 # career, projection, Monte Carlo, taxes, schemas, money
+  hooks/                  # useCalculatorConfig (validation + linking)
 tests/
-└── domain/                        # Vitest coverage for core financial logic
+  domain/                 # engine invariants, Monte Carlo determinism, mortgage math
+  components/             # stage panels + regression coverage
 ```
 
-### Modular Calculator Design
-Stateful form management lives in `useCalculatorConfig`, domain helpers reside in `src/domain`, and presentation components under `src/components/calculator` compose the UI. The architecture separates pure financial calculations from React rendering, making the Monte Carlo and projection engines directly testable.
+## Key Implementation Notes
 
-## Critical Implementation Details
+### Validation & Form Flow
+- `CalculatorForm` + `CalculatorInput` schemas live in `src/domain/schemas.ts`.
+- `useCalculatorConfig` keeps the latest valid inputs while allowing users to explore invalid intermediate states (blank fields, out-of-range numbers). Validation issues are exposed to the inputs panel; engine calls always consume the last known-good configuration.
+- Derived withdrawal rate = `100 / targetPortfolioMultiple` when the multiple is finite and > 0; otherwise 0. No clamping happens silently—errors stay visible until resolved.
 
-### Income Calculation Logic
+### Projection Engine (`src/domain/projection.ts`)
+- Runs monthly, using decimals to update tax-advantaged and taxable balances independently.
+- Allocates savings by maxing retirement accounts (401(k), Roth, employer match) before taxable spillover; handles withdrawals in the reverse order.
+- Tracks college reserves per child, Prop 13 property taxes, rental cash flow vs. taxable income, and FIRE readiness thresholds. Outputs include yearly summaries consumed by both panels.
 
-The calculator handles multiple career phases with different income rules:
+### Monte Carlo (`src/domain/monteCarlo.ts`)
+- Uses deterministic seeds and lognormal return sampling (see `generateLognormalReturn` in `statistics.ts`, mocked in tests) to replay accumulation + withdrawal phases.
+- Accepts volatility, iterations, success threshold, retirement end age, and linkage state. Stage 2 can run independently when the UI toggle decouples it from Stage 1 projections.
+- Returns percentile stats (p10/p25/p50/p75/p90), success probability, and failure narratives consumed by the Post-Retirement tab.
 
-**Phase detection:**
-- Law school (2025-2027): Base income only
-- BigLaw (2028-2028): Cravath scale starting year 1
-- Clerking (2029-2030): Fixed salary + 401k match (4%)
-- Return to BigLaw (2031-2035): Cravath scale with class year credit
-- Public Interest (2036+): Fixed salary + annual raises (3%) + 401k match (4%)
+### Career & Tax Modules
+- `career.ts` encodes the BigLaw → clerking → BigLaw → public interest path, including Cravath scale, clerkship credit, and employer match rules.
+- `taxes.ts` computes federal, California, and FICA obligations with inflation-adjusted brackets, plus above-the-line deductions and rental interest treatment.
 
-**Cravath scale progression:**
-The scale is lockstep with no annual inflation adjustments. Once a cohort's scale is set, it remains fixed. The calculator uses the 2025 scale throughout (conservative assumption). Class year advances annually when in BigLaw.
+### UI Surface
+- `CalculatorInputsPanel.tsx` renders all inputs with currency formatting, empty-state tolerance, and explanatory tooltips (see `fieldTooltips`). Linking toggles allow Stage 2 overrides while still displaying Phase 1 outputs when linked.
+- `PreRetirementPanel.tsx` and `PostRetirementPanel.tsx` visualise projection outputs, FIRE readiness, Monte Carlo survival, and guardrail messaging.
+- Tooltips styled via `src/index.css` with widened popovers for readability.
 
-**Key function:** `getCravathSalary(associateYear)` - returns 2025 scale values for years 1-8
-
-### Tax Calculation
-
-**Three separate tax types:**
-1. **Federal income tax**: Progressive brackets (10% → 37%)
-2. **California state tax**: Progressive brackets (1% → 12.3%)
-3. **FICA**: Social Security (6.2% up to wage base) + Medicare (1.45% + Additional Medicare Tax)
-
-**Above-the-line deductions applied first:**
-- HSA: $8,550 (2025 value, inflates)
-- Dependent Care FSA: $7,500 (2025 value, inflates)
-
-**Standard vs. itemized deductions:**
-Calculator uses whichever is greater. Rental mortgage interest is automatically added to itemized deductions.
-
-**All tax brackets inflate at general inflation rate** (default 3%) to maintain real purchasing power.
-
-### Portfolio Allocation Logic
-
-**Two account types tracked separately:**
-- **Tax-advantaged** (401k + IRA): 7% return, no dividend drag
-- **Taxable** (brokerage): 6% return, accounts for dividend taxation
-
-**Contribution priority:**
-1. Max out both 401(k)s: $23,500 each (2025 limit, inflates)
-2. Max out both Roth IRAs: $7,000 each (2025 limit, inflates)
-3. Add employer matches (when applicable)
-4. Overflow → taxable accounts
-
-**Withdrawal priority (reverse):**
-1. Withdraw from taxable first (flexible, no penalties)
-2. Tax-advantaged withdrawal only if taxable depleted
-
-### 529 College Savings
-
-**Per-daughter tracking:**
-- Daughter 1 (born 2021): College years 2039-2042
-- Daughter 2 (born 2025): College years 2043-2046
-
-**Key rules:**
-- Contributions capped at 50% of positive annual savings (enforces retirement priority)
-- Each account stops growing/contributing when daughter turns 22
-- College cost inflation (3.5%) exceeds general inflation (3.0%)
-- Shortfalls paid from main portfolio (taxable first)
-- Warning if final balance > $0 (suggests over-contribution)
-
-### Rental Property
-
-**Two separate calculations:**
-
-1. **Cash flow** (what hits bank account):
-   - Before mortgage payoff: Income - P&I - property tax - insurance - maintenance - vacancy
-   - After mortgage payoff: Income - property tax - insurance - maintenance - vacancy
-
-2. **Taxable income** (what's reported to IRS):
-   - Income - property tax - insurance - mortgage INTEREST - maintenance - vacancy
-   - Only interest is deductible, not principal
-
-**Mortgage amortization:**
-Uses closed-form calculation (not month-by-month iteration) for efficiency. Interest deduction calculated annually based on remaining balance.
-
-**Prop 13 property tax cap:**
-Both primary residence and rental property taxes grow at 2% annually (California law), creating significant long-term value versus market-rate appreciation.
-
-### Monte Carlo Simulation
-
-**Two-phase modeling:**
-
-**Phase 1 - Accumulation (Still Working):**
-- Deterministic cash flows (actual income/expenses from base case)
-- Random returns: N(mean=7%, stddev=15%) for tax-adv, N(mean=6%, stddev=15%) for taxable
-- Check annually if portfolio ≥ FIRE target
-- Switch to Phase 2 when FIRE achieved
-
-**Phase 2 - Withdrawal (Retired):**
-- Stop W-2 income (rental + Social Security continue)
-- Calculate withdrawal needed: expenses - rental - SS
-- Random returns applied to portfolio
-- Track portfolio depletion (< $1,000 = failed simulation)
-
-**Random number generation:**
-Box-Muller transform for normally distributed returns:
-```javascript
-u1 = random(), u2 = random()
-z = sqrt(-2 × ln(u1)) × cos(2π × u2)
-return = mean + (z × stddev)
-```
-
-**Performance optimization:**
-Simulations wrapped in `setTimeout(..., 100)` to avoid blocking UI thread. "Running..." state provides user feedback.
-
-## Common Development Tasks
-
-### Modifying FIRE Target Calculation
-
-The FIRE target is calculated in the main projection loop. Current formula:
-```javascript
-fireTarget = (fireExpenseTarget × inflationFactor × targetPortfolioMultiple)
-           + collegeReserveNeeded
-           + healthcareBuffer
-```
-
-To add a new component (e.g., relocation buffer, elder care reserve):
-1. Add state variable for the amount
-2. Calculate the reserve in the projection loop
-3. Add to `fireTarget` calculation
-4. Display in UI form section
-
-### Adding a New Income Source
-
-1. Add state variable(s) for amount and timing
-2. Update income calculation section in projection loop
-3. Add to `totalIncome`
-4. Update tax calculation if source has special treatment (e.g., municipal bond interest)
-5. Add UI form fields
-
-### Adding a New Expense Category
-
-1. Add state variable for amount
-2. Choose inflation treatment (general, Prop 13, education, or none)
-3. Add to expense calculation section
-4. Add to `totalExpenses`
-5. Add UI form fields
-
-### Modifying Tax Calculations
-
-Federal and California tax brackets are hardcoded in the projection loop. To update:
-1. Find the tax calculation section (~line 400-600 range)
-2. Update bracket thresholds and rates
-3. Ensure bracket inflation is applied consistently
-4. Test with known tax scenarios to verify accuracy
+## Workflow Tips for Claude
+- Always update schemas, default form values, and UI inputs together when adding a field.
+- When adjusting financial assumptions, modify the domain module first, extend domain tests, then align UI renderers.
+- Decimal helpers (`money.ts`) should wrap any new arithmetic; never mix plain numbers with decimals mid-stream.
+- Tests to run before handing work back: `npm run lint` and `npm run test`. Monte Carlo tests rely on deterministic seeds—update fixtures if you intentionally change distributions.
+- Coordinate documentation changes (`README.md`, `AGENTS.md`) whenever new inputs, toggles, or methodology adjustments ship so human collaborators stay aligned.
 
 ### Extending Monte Carlo
 

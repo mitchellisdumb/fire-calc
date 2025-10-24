@@ -1,5 +1,8 @@
 import { CalculatorInputs } from './types';
 
+// Tax calculation accepts the minimal subset of inputs it needs so callers cannot
+// accidentally rely on mutable shared state. This makes the module easy to audit
+// and, if the tax rules change, easy to test independently.
 export interface TaxParams {
   year: number;
   myIncome: number;
@@ -27,6 +30,9 @@ export interface TaxBreakdown {
   effectiveRate: string;
 }
 
+// Compute federal, California, and payroll taxes for a single year. We treat all
+// bracket thresholds as nominal values anchored to 2025 and inflate them so real
+// purchasing power stays roughly constant over time.
 export function calculateTaxes(params: TaxParams): TaxBreakdown {
   const { year, myIncome, spouseIncome, rentalNetForTaxes, socialSecurityIncome, inputs } = params;
   const {
@@ -46,6 +52,8 @@ export function calculateTaxes(params: TaxParams): TaxBreakdown {
   const threshold1 = 32000 * inflationFactor;
   const threshold2 = 44000 * inflationFactor;
 
+  // IRS provisional-income rules: 0%, 50%, or 85% of Social Security becomes
+  // taxable depending on where provisional income lands relative to thresholds.
   let taxableSS = 0;
   if (provisionalIncome <= threshold1) {
     taxableSS = 0;
@@ -68,9 +76,12 @@ export function calculateTaxes(params: TaxParams): TaxBreakdown {
   const adjustedItemizedDeductions = itemizedDeductions * inflationFactor;
   const chosenDeduction = Math.max(adjustedStandardDeduction, adjustedItemizedDeductions);
 
+  // Above-the-line deductions (HSA + Dependent Care FSA) plus the larger of
+  // standard vs. itemised produce the taxable-income base.
   const totalDeductions = hsaContribution + dependentCareFSA + chosenDeduction;
   const taxableIncome = Math.max(0, totalIncome - totalDeductions);
 
+  // 2025 joint filing brackets, inflated forward. Infinity cap keeps the loop simple.
   const federalBrackets = [
     { limit: 23200 * inflationFactor, rate: 0.1 },
     { limit: 94300 * inflationFactor, rate: 0.12 },
@@ -92,6 +103,8 @@ export function calculateTaxes(params: TaxParams): TaxBreakdown {
     previousLimit = bracket.limit;
   }
 
+  // California progressive brackets; inflation ensures the model can simulate
+  // decades without artificially drifting more taxpayers into higher brackets.
   const caBrackets = [
     { limit: 20198 * inflationFactor, rate: 0.01 },
     { limit: 47884 * inflationFactor, rate: 0.02 },

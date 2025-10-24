@@ -47,11 +47,15 @@ export default function FIRECalculator() {
   const [manualDirty, setManualDirty] = useState(false);
   const [mcRunning, setMcRunning] = useState(false);
 
+  // Deterministic projection recomputes whenever validated inputs change. Memoising
+  // keeps the UI responsive when editing a single field.
   const projections = useMemo<ProjectionResult>(
     () => buildProjections(calculatorInputs),
     [calculatorInputs],
   );
 
+  // Default scenario used when no percentile has been selected yet. Falls back
+  // to the deterministic FIRE year or a 20-year horizon if FIRE is unattained.
   const defaultScenario = useMemo(() => {
     const retirementYear = projections.fireYear?.year ?? currentYear + 20;
     const startingPortfolio = projections.fireYear?.portfolio ?? calculatorInputs.initialSavings;
@@ -70,6 +74,8 @@ export default function FIRECalculator() {
     }
   }, [defaultScenario, manualDirty]);
 
+  // Toggling Monte Carlo off should clear prior results so the UI doesn’t display
+  // stale readiness charts.
   useEffect(() => {
     if (!state.mcEnabled) {
       setAccumulationResult(null);
@@ -77,6 +83,8 @@ export default function FIRECalculator() {
     }
   }, [state.mcEnabled]);
 
+  // Translate percentile pick into a retirement scenario. Returns null when the
+  // percentile never achieves FIRE (e.g., pessimistic tail).
   const deriveScenario = useCallback(
     (percentile: number, result: AccumulationMonteCarloResult | null): RetirementScenario | null => {
       if (!result) return null;
@@ -126,6 +134,8 @@ export default function FIRECalculator() {
         probability: 0,
       };
 
+  // Runs both accumulation and withdrawal Monte Carlo with the latest inputs. We
+  // wrap the heavy work in setTimeout so the UI can display a “running…” state.
   const handleRunMonteCarlo = useCallback(() => {
     if (!mcSettings.enabled) {
       setAccumulationResult(null);
@@ -185,6 +195,8 @@ export default function FIRECalculator() {
     setActiveTab('post');
   }, [scenarioForSelection]);
 
+  // Switching to manual mode should leave the linked values untouched but mark
+  // the manual scenario as “dirty” so it no longer auto-syncs with defaults.
   const handleManualScenarioChange = useCallback(
     (field: keyof ManualScenarioState, value: number) => {
       setManualDirty(true);
@@ -207,6 +219,8 @@ export default function FIRECalculator() {
     [scenarioForSelection],
   );
 
+  // Ray-casted layout: inputs at top, then tabbed outputs. All major props flow
+  // through this component so auditors can see how state connects to UI.
   return (
     <div className="w-full max-w-7xl mx-auto p-8 bg-white rounded-xl shadow-2xl">
       <div className="mb-8 text-center">

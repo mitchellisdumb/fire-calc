@@ -15,8 +15,12 @@ import {
 } from './types'
 import { clampMin, dec, toNumber } from './money'
 
+// Percentiles we expose in the UI and API responses. Keeping this constant array
+// here avoids magic numbers sprinkled throughout the code.
 const PERCENTILES = [10, 25, 50, 75, 90] as const;
 
+// Transform a map of year → array of balances into per-year percentile summaries.
+// This powers the post-retirement chart shading (p10/p25/p50/p75/p90 bands).
 function buildYearlyPercentiles(yearlyResults: Record<number, number[]>): Record<number, YearlyPercentiles> {
   const percentileByYear: Record<number, YearlyPercentiles> = {};
 
@@ -36,6 +40,8 @@ function buildYearlyPercentiles(yearlyResults: Record<number, number[]>): Record
   return percentileByYear;
 }
 
+// Run the accumulation-phase Monte Carlo: we replay the deterministic projection
+// and layer stochastic annual returns to estimate when FIRE readiness is hit.
 export function runAccumulationMonteCarlo(
   inputs: CalculatorInputs,
   projections: ProjectionResult,
@@ -53,6 +59,8 @@ export function runAccumulationMonteCarlo(
   const samples: AccumulationMonteCarloSample[] = [];
 
   for (let sim = 0; sim < iterations; sim++) {
+    // Start each simulation from the same initial state the deterministic
+    // projection uses so the randomised results remain directly comparable.
     let taxAdvPortfolio = dec(initialSavings)
       .mul(dec(100).sub(initialTaxablePct))
       .div(100)
@@ -82,6 +90,8 @@ export function runAccumulationMonteCarlo(
 
       const portfolio = taxAdvPortfolio.add(taxablePortfolio);
 
+      // We stop as soon as FIRE is attained in a simulation because later years
+      // do not change the “time to readiness” metric.
       if (portfolio.greaterThanOrEqualTo(baseYear.fireTarget)) {
         crossingYear = baseYear.year;
         crossingPortfolio = toNumber(portfolio);
@@ -96,6 +106,7 @@ export function runAccumulationMonteCarlo(
     });
   }
 
+  // For each calendar year report the probability of having achieved FIRE by then.
   const readinessByYear: ReadinessProbabilityPoint[] = projections.years.map((year) => {
     const successes = samples.filter(
       (sample) => sample.crossingYear !== null && sample.crossingYear <= year.year,
@@ -171,6 +182,9 @@ export function runAccumulationMonteCarlo(
   };
 }
 
+// Simulate the withdrawal phase. We reuse deterministic projection cash flows but
+// expose toggles so the user can either link to accumulation outputs or override
+// the starting portfolio/age entirely.
 export function runWithdrawalMonteCarlo(
   inputs: CalculatorInputs,
   projections: ProjectionResult,
@@ -202,6 +216,8 @@ export function runWithdrawalMonteCarlo(
   const baseTaxable = Math.max(0, baseYear.taxablePortfolio);
   const baseTotal = baseTaxAdv + baseTaxable;
 
+  // When Stage 2 is linked we inherit the deterministic portfolio split. If the
+  // user runs Phase 2 independently, fall back to the initial taxable percentage.
   const fallbackTaxableRatio = initialTaxablePct / 100;
   const taxAdvRatio =
     baseTotal > 0 ? baseTaxAdv / baseTotal : 1 - fallbackTaxableRatio;
@@ -229,6 +245,9 @@ export function runWithdrawalMonteCarlo(
       taxAdvPortfolio = taxAdvPortfolio.mul(1 + taxAdvReturn)
       taxablePortfolio = taxablePortfolio.mul(1 + taxReturn)
 
+      // Deterministic projection already rolled up total expenses, rental income,
+      // and Social Security. We recompute net expenses here so Monte Carlo only
+      // focuses on market volatility and withdrawal taxation.
       const totalExpenses = dec(base.totalExpenses)
       const rentalIncome = dec(base.rentalNetCashFlow)
       const socialSecurityIncome = dec(base.socialSecurityIncome || 0)
@@ -237,6 +256,10 @@ export function runWithdrawalMonteCarlo(
       if (netExpenses.greaterThan(0)) {
         let grossNeeded = netExpenses
 
+        // Estimate taxes on withdrawals iteratively. We assume taxable withdrawals
+        // face 15% long-term capital gains and tax-advantaged withdrawals face a
+        // 31% marginal rate (federal + CA). Three iterations is enough to converge
+        // because the tax impact shrinks each round.
         for (let iter = 0; iter < 3; iter++) {
           let taxOnWithdrawal = dec(0)
           const taxableWithdrawal = grossNeeded.lessThanOrEqualTo(taxablePortfolio)
@@ -269,6 +292,7 @@ export function runWithdrawalMonteCarlo(
 
       const currentPortfolio = taxAdvPortfolio.add(taxablePortfolio)
 
+      // Mark the first year the combined balance dips below ~$1k as “depleted”.
       if (!portfolioDepleted && currentPortfolio.lessThan(1000)) {
         portfolioDepleted = true;
         depletionYear = year;

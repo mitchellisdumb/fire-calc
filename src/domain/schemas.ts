@@ -1,5 +1,8 @@
 import { CalculatorInputs } from './types'
 
+// UI form state extends the deterministic calculator inputs with Monte Carlo-only
+// toggles. Keeping one interface lets us share validation between accumulation
+// and withdrawal surfaces.
 export interface CalculatorForm extends CalculatorInputs {
   mcEnabled: boolean
   mcIterations: number
@@ -8,6 +11,9 @@ export interface CalculatorForm extends CalculatorInputs {
   mcRetirementEndAge: number
 }
 
+// Generic validation result used by both synchronous checks and form-to-input
+// conversions. We collect every issue so the UI can show a list rather than
+// failing on the first invalid field.
 export interface ValidationResult<T> {
   success: boolean
   data?: T
@@ -17,6 +23,7 @@ export interface ValidationResult<T> {
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max)
 
+// Many fields are user editable, so we harden the validator against NaN / +/- Infinity.
 const ensureFinite = (value: number, label: string, issues: string[]) => {
   if (!Number.isFinite(value)) {
     issues.push(`${label} must be a finite number.`)
@@ -26,6 +33,8 @@ const ensureFinite = (value: number, label: string, issues: string[]) => {
 export const validateCalculatorForm = (form: CalculatorForm): ValidationResult<CalculatorForm> => {
   const issues: string[] = []
 
+  // Scalar numeric bounds. These guard both UI edits and programmatic updates
+  // (e.g., linking/unlinking phases) and should mirror the business assumptions.
   const numericBounds: Array<[keyof CalculatorForm, number, number]> = [
     ['initialSavings', 0, 1_000_000_000],
     ['initialTaxablePct', 0, 100],
@@ -80,6 +89,8 @@ export const validateCalculatorForm = (form: CalculatorForm): ValidationResult<C
     }
   })
 
+  // Integer-only fields (years/ages). Reject fractional values so downstream
+  // modules can safely rely on calendar arithmetic.
   const integerFields: Array<[keyof CalculatorForm, number, number]> = [
     ['bigLawStartYear', 1900, 2100],
     ['clerkingStartYear', 1900, 2100],
@@ -104,6 +115,8 @@ export const validateCalculatorForm = (form: CalculatorForm): ValidationResult<C
     }
   })
 
+  // Cross-field checks: enforce timeline ordering so the career pipeline remains
+  // logically consistent.
   if (form.bigLawStartYear > form.clerkingStartYear) {
     issues.push('BigLaw start year must be on or before the clerking start year.')
   }
@@ -136,6 +149,9 @@ export const convertFormToInput = (
     issues.push('currentYear must be between 1900 and 2100.')
   }
 
+  // Reuse the core validator so any UI edits and programmatic updates share the
+  // same guardrails. We return the original validation issues so the UI can
+  // continue displaying them while preserving last known-good inputs.
   const baseValidation = validateCalculatorForm(form)
   if (!baseValidation.success || !baseValidation.data) {
     return { success: false, issues: baseValidation.issues }

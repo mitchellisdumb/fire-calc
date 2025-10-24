@@ -5,6 +5,8 @@ import {
   RetirementScenario,
 } from '../../domain/types';
 
+// Percentiles available for scenario selection—kept in sync with the Monte Carlo
+// engine’s outputs.
 const PERCENTILE_OPTIONS = [10, 25, 50, 75, 90];
 
 interface PreRetirementPanelProps {
@@ -21,6 +23,9 @@ interface PreRetirementPanelProps {
   mcRunning: boolean;
 }
 
+// Displays deterministic FIRE milestones alongside accumulation-phase Monte Carlo
+// readiness. Also allows the user to pin a percentile scenario for use in the
+// withdrawal planner.
 export default function PreRetirementPanel({
   projections,
   accumulationResult,
@@ -36,6 +41,8 @@ export default function PreRetirementPanel({
 }: PreRetirementPanelProps) {
   const deterministicFireYear = projections.fireYear;
 
+  // Thin out the readiness table: show every other year once probabilities are
+  // near-certain, otherwise sample every 5th year so the table stays readable.
   const readinessRows = accumulationResult
     ? accumulationResult.readinessByYear.filter((point, index) => {
         if (point.probability >= 99) return index % 2 === 0;
