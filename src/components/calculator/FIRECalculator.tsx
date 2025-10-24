@@ -296,6 +296,8 @@ export default function FIRECalculator() {
             successThreshold={mcSettings.targetSurvival}
             mcEnabled={mcSettings.enabled}
             mcRunning={mcRunning}
+            projections={projections}
+            derivedWithdrawalRate={derivedWithdrawalRate}
           />
         )}
       </div>
