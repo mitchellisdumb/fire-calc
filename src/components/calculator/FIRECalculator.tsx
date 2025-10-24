@@ -28,6 +28,7 @@ export default function FIRECalculator() {
     currentYear,
     state,
     updateField,
+    resetToDefaults,
     calculatorInputs,
     mcSettings,
     validationIssues,
@@ -219,15 +220,34 @@ export default function FIRECalculator() {
     [scenarioForSelection],
   );
 
+  const handleReset = useCallback(() => {
+    if (window.confirm('Reset calculator to default values? This will clear all your inputs and cannot be undone.')) {
+      resetToDefaults();
+      setAccumulationResult(null);
+      setWithdrawalResult(null);
+      setLinkedScenario(null);
+      setManualDirty(false);
+    }
+  }, [resetToDefaults]);
+
   // Ray-casted layout: inputs at top, then tabbed outputs. All major props flow
   // through this component so auditors can see how state connects to UI.
   return (
     <div className="w-full max-w-7xl mx-auto p-8 bg-white rounded-xl shadow-2xl">
-      <div className="mb-8 text-center">
-        <h1 className="text-4xl font-bold mb-2 bg-gradient-to-r from-emerald-600 to-orange-600 bg-clip-text text-transparent">
-          FIRE Retirement Calculator
-        </h1>
-        <p className="text-gray-600 text-sm">
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-2">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-emerald-600 to-orange-600 bg-clip-text text-transparent">
+            FIRE Retirement Calculator
+          </h1>
+          <button
+            onClick={handleReset}
+            className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors border border-gray-300"
+            title="Reset calculator to default values"
+          >
+            Reset to Defaults
+          </button>
+        </div>
+        <p className="text-gray-600 text-sm text-center">
           Financial Independence, Retire Early – Model your path to freedom
         </p>
       </div>

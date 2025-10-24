@@ -35,10 +35,10 @@ npm run lint         # Run ESLint
 src/
   App.jsx / main.jsx
   components/calculator/  # FIRECalculator.tsx + panels/inputs
-  domain/                 # career, projection, Monte Carlo, taxes, schemas, money
+  domain/                 # career, projection, Monte Carlo, taxes, schemas, money, historicalReturns, statistics
   hooks/                  # useCalculatorConfig (validation + linking)
 tests/
-  domain/                 # engine invariants, Monte Carlo determinism, mortgage math
+  domain/                 # engine invariants, Monte Carlo determinism, mortgage math, 529 edge cases, benchmarks
   components/             # stage panels + regression coverage
 ```
 
@@ -55,16 +55,25 @@ tests/
 - Tracks college reserves per child, Prop 13 property taxes, rental cash flow vs. taxable income, and FIRE readiness thresholds. Outputs include yearly summaries consumed by both panels.
 
 ### Monte Carlo (`src/domain/monteCarlo.ts`)
-- Uses deterministic seeds and lognormal return sampling (see `generateLognormalReturn` in `statistics.ts`, mocked in tests) to replay accumulation + withdrawal phases.
-- Accepts volatility, iterations, success threshold, retirement end age, and linkage state. Stage 2 can run independently when the UI toggle decouples it from Stage 1 projections.
+- Supports two simulation modes: **parametric** (lognormal distribution) and **historical** (actual S&P 500 returns from 1928-2024).
+- Parametric mode uses deterministic seeds and lognormal return sampling (see `generateLognormalReturn` in `statistics.ts`, mocked in tests).
+- Historical mode samples random sequences from 97 years of actual market data via bootstrap sampling (see `historicalReturns.ts`).
+- Accepts volatility, iterations, success threshold, retirement end age, simulation mode (`useHistoricalReturns`), and linkage state.
+- Stage 2 can run independently when the UI toggle decouples it from Stage 1 projections.
 - Returns percentile stats (p10/p25/p50/p75/p90), success probability, and failure narratives consumed by the Post-Retirement tab.
 
 ### Career & Tax Modules
 - `career.ts` encodes the BigLaw → clerking → BigLaw → public interest path, including Cravath scale, clerkship credit, and employer match rules.
 - `taxes.ts` computes federal, California, and FICA obligations with inflation-adjusted brackets, plus above-the-line deductions and rental interest treatment.
 
+### Historical Returns (`src/domain/historicalReturns.ts`)
+- Contains 97 years of actual S&P 500 annual returns (1928-2024) with nominal returns, inflation, and real returns.
+- Provides `generateHistoricalSequence()` for bootstrap sampling (random draws with replacement) to create simulation sequences.
+- Also includes `generateSequentialHistory()` for replaying specific historical periods (e.g., testing against the Great Depression or 2008 crash).
+- Historical data sourced from publicly available S&P 500 return datasets and inflation data.
+
 ### UI Surface
-- `CalculatorInputsPanel.tsx` renders all inputs with currency formatting, empty-state tolerance, and explanatory tooltips (see `fieldTooltips`). Linking toggles allow Stage 2 overrides while still displaying Phase 1 outputs when linked.
+- `CalculatorInputsPanel.tsx` renders all inputs with currency formatting, empty-state tolerance, and explanatory tooltips (see `fieldTooltips`). Linking toggles allow Stage 2 overrides while still displaying Phase 1 outputs when linked. Monte Carlo settings include a toggle for historical vs. parametric simulation modes.
 - `PreRetirementPanel.tsx` and `PostRetirementPanel.tsx` visualise projection outputs, FIRE readiness, Monte Carlo survival, and guardrail messaging.
 - Tooltips styled via `src/index.css` with widened popovers for readability.
 
@@ -79,8 +88,12 @@ tests/
 
 The Monte Carlo simulations now live in two helpers: `runAccumulationMonteCarlo` (readiness timing) and `runWithdrawalMonteCarlo` (retirement longevity). Key extension points:
 
-**To change return distribution:**
-Modify the `generateNormalReturn()` helper function. Current implementation uses normal distribution; could be changed to log-normal, historical returns, etc.
+**Return distribution modes:**
+The system supports two modes controlled by the `useHistoricalReturns` flag:
+1. **Parametric mode** (default): Uses `generateLognormalReturn()` in `statistics.ts` to sample from a lognormal distribution with specified mean and volatility.
+2. **Historical mode**: Uses bootstrap sampling from `historicalReturns.ts` containing 97 years of actual S&P 500 returns (1928-2024). Each simulation draws a random sequence with replacement.
+
+To add new distribution modes, extend the conditional logic in `monteCarlo.ts` that switches between `getNextHistoricalReturn()` and `generateLognormalReturn()`.
 
 **To add correlation between asset classes:**
 Currently, tax-advantaged and taxable returns are independent. To add correlation, generate correlated random variables using Cholesky decomposition.

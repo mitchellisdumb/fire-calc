@@ -1,4 +1,10 @@
-import { calculatePercentile, generateLognormalReturn } from './statistics'
+import {
+  calculatePercentile,
+  generateLognormalReturn,
+  initializeHistoricalSequence,
+  getNextHistoricalReturn,
+  resetHistoricalSequence,
+} from './statistics'
 import {
   AccumulationMonteCarloResult,
   AccumulationMonteCarloSample,
@@ -18,6 +24,7 @@ import { clampMin, dec, toNumber } from './money'
 // Percentiles we expose in the UI and API responses. Keeping this constant array
 // here avoids magic numbers sprinkled throughout the code.
 const PERCENTILES = [10, 25, 50, 75, 90] as const;
+const HISTORICAL_DRAWS_PER_YEAR = 2; // tax-advantaged and taxable return draws per simulation year
 
 // Transform a map of year → array of balances into per-year percentile summaries.
 // This powers the post-retirement chart shading (p10/p25/p50/p75/p90 bands).
@@ -54,11 +61,16 @@ export function runAccumulationMonteCarlo(
     taxableReturnRate,
   } = inputs;
 
-  const { iterations, volatility } = settings;
+  const { iterations, volatility, useHistoricalReturns = false } = settings;
 
   const samples: AccumulationMonteCarloSample[] = [];
 
   for (let sim = 0; sim < iterations; sim++) {
+    // Initialize historical sequence for this simulation if needed
+    if (useHistoricalReturns) {
+      initializeHistoricalSequence(projections.years.length * HISTORICAL_DRAWS_PER_YEAR, sim);
+    }
+
     // Start each simulation from the same initial state the deterministic
     // projection uses so the randomised results remain directly comparable.
     let taxAdvPortfolio = dec(initialSavings)
@@ -72,8 +84,13 @@ export function runAccumulationMonteCarlo(
     for (let yearIdx = 0; yearIdx < projections.years.length; yearIdx++) {
       const baseYear = projections.years[yearIdx];
 
-      const taxAdvReturn = generateLognormalReturn(taxAdvReturnRate, volatility);
-      const taxReturn = generateLognormalReturn(taxableReturnRate, volatility);
+      // Generate returns based on mode
+      const taxAdvReturn = useHistoricalReturns
+        ? getNextHistoricalReturn()
+        : generateLognormalReturn(taxAdvReturnRate, volatility);
+      const taxReturn = useHistoricalReturns
+        ? getNextHistoricalReturn()
+        : generateLognormalReturn(taxableReturnRate, volatility);
 
       const taxAdvContribution = dec(baseYear.taxAdvContribution);
       const taxableContribution = dec(baseYear.taxableContribution);
@@ -104,6 +121,11 @@ export function runAccumulationMonteCarlo(
       crossingAge: crossingYear !== null ? crossingYear - 1987 : null,
       crossingPortfolio,
     });
+
+    // Reset historical sequence for next simulation
+    if (useHistoricalReturns) {
+      resetHistoricalSequence();
+    }
   }
 
   // For each calendar year report the probability of having achieved FIRE by then.
@@ -197,7 +219,7 @@ export function runWithdrawalMonteCarlo(
     initialTaxablePct,
   } = inputs;
 
-  const { iterations, volatility, retirementEndAge } = settings;
+  const { iterations, volatility, retirementEndAge, useHistoricalReturns = false } = settings;
 
   const retirementIndex = projections.years.findIndex(
     (year) => year.year === options.retirementYear,
@@ -227,6 +249,12 @@ export function runWithdrawalMonteCarlo(
   const yearlyResults: Record<number, number[]> = {};
 
   for (let sim = 0; sim < iterations; sim++) {
+    // Initialize historical sequence for this simulation if needed
+    if (useHistoricalReturns) {
+      const simulationLength = endIndex - retirementIndex;
+      initializeHistoricalSequence(simulationLength * HISTORICAL_DRAWS_PER_YEAR, sim);
+    }
+
     let taxAdvPortfolio = dec(options.startingPortfolio).mul(taxAdvRatio)
     let taxablePortfolio = dec(options.startingPortfolio).mul(taxableRatio)
 
@@ -239,8 +267,13 @@ export function runWithdrawalMonteCarlo(
       const base = projections.years[yearIdx];
       const year = base.year;
 
-      const taxAdvReturn = generateLognormalReturn(taxAdvReturnRate, volatility);
-      const taxReturn = generateLognormalReturn(taxableReturnRate, volatility);
+      // Generate returns based on mode
+      const taxAdvReturn = useHistoricalReturns
+        ? getNextHistoricalReturn()
+        : generateLognormalReturn(taxAdvReturnRate, volatility);
+      const taxReturn = useHistoricalReturns
+        ? getNextHistoricalReturn()
+        : generateLognormalReturn(taxableReturnRate, volatility);
 
       taxAdvPortfolio = taxAdvPortfolio.mul(1 + taxAdvReturn)
       taxablePortfolio = taxablePortfolio.mul(1 + taxReturn)
@@ -321,6 +354,11 @@ export function runWithdrawalMonteCarlo(
       depletionYear,
       timeline: simYears,
     });
+
+    // Reset historical sequence for next simulation
+    if (useHistoricalReturns) {
+      resetHistoricalSequence();
+    }
   }
 
   const survivedSimulations = simResults.filter((sim) => !sim.portfolioDepleted);

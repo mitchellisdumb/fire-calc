@@ -115,6 +115,7 @@ export interface MonteCarloSettings {
   volatility: number;
   targetSurvival: number;
   retirementEndAge: number;
+  useHistoricalReturns?: boolean; // If true, use historical S&P 500 returns instead of parametric
 }
 
 // Captures a single Monte Carlo timeline point (year, balance, basic flags).

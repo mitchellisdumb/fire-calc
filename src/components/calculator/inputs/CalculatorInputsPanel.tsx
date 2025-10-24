@@ -50,8 +50,8 @@ const currencyFieldSet = new Set(currencyFields);
 
 // Tooltips map form fields to audit-friendly explanations so reviewers understand
 // why each slider/input matters. We include the Monte Carlo toggles and special
-// checkboxes as “virtual” keys.
-type TooltipKey = keyof CalculatorFormState | 'includeHealthcareBuffer' | 'mcEnabled';
+// checkboxes as "virtual" keys.
+type TooltipKey = keyof CalculatorFormState | 'includeHealthcareBuffer' | 'mcEnabled' | 'mcUseHistoricalReturns';
 
 const fieldTooltips: Partial<Record<TooltipKey, string>> = {
   initialSavings: "Starting combined balance across taxable and tax-deferred accounts in base-year dollars.",
@@ -108,6 +108,7 @@ const fieldTooltips: Partial<Record<TooltipKey, string>> = {
   mcVolatility: "Standard deviation of annual returns used for Monte Carlo draws.",
   mcTargetSurvival: "Required percentage of successful Monte Carlo runs that finish above zero.",
   mcRetirementEndAge: "Final age evaluated in Monte Carlo survival calculations.",
+  mcUseHistoricalReturns: "Use actual historical S&P 500 returns (1928-2024) instead of parametric lognormal distribution; samples random sequences from historical data with replacement.",
 };
 
 const TooltipIcon = ({ field }: { field: TooltipKey }) => {
@@ -273,6 +274,7 @@ export default function CalculatorInputsPanel({
     mcVolatility,
     mcTargetSurvival,
     mcRetirementEndAge,
+    mcUseHistoricalReturns,
   } = state;
 
   // Sections are grouped to mirror how the projection engine consumes inputs:
@@ -884,6 +886,15 @@ export default function CalculatorInputsPanel({
               type="checkbox"
               checked={mcEnabled}
               onChange={(e) => updateField('mcEnabled', e.target.checked)}
+              className="rounded"
+            />
+          </FieldCheckboxLabel>
+
+          <FieldCheckboxLabel field="mcUseHistoricalReturns" text="Use historical S&P 500 returns (1928-2024)">
+            <input
+              type="checkbox"
+              checked={mcUseHistoricalReturns}
+              onChange={(e) => updateField('mcUseHistoricalReturns', e.target.checked)}
               className="rounded"
             />
           </FieldCheckboxLabel>

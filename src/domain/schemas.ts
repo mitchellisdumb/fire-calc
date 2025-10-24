@@ -9,6 +9,7 @@ export interface CalculatorForm extends CalculatorInputs {
   mcVolatility: number
   mcTargetSurvival: number
   mcRetirementEndAge: number
+  mcUseHistoricalReturns: boolean
 }
 
 // Generic validation result used by both synchronous checks and form-to-input

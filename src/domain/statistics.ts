@@ -1,3 +1,5 @@
+import { generateHistoricalSequence, SP500_HISTORICAL_RETURNS } from './historicalReturns';
+
 // Box–Muller transform returning a standard normal (mean 0, variance 1). This is
 // used as the basis for generating lognormal investment returns inside Monte Carlo.
 // We reject 0 because ln(0) would explode; rerolling keeps the distribution intact.
@@ -21,6 +23,48 @@ export function generateLognormalReturn(arithmeticMean: number, volatility: numb
   const logReturn = muLog + sigma * generateStandardNormal();
 
   return Math.exp(logReturn) - 1;
+}
+
+// State for historical simulation mode
+let historicalSequenceCache: number[] | null = null;
+let historicalSequenceIndex = 0;
+
+/**
+ * Initialize historical simulation mode
+ * @param sequenceLength Length of the sequence needed
+ * @param seed Optional seed for reproducible simulations
+ */
+export function initializeHistoricalSequence(sequenceLength: number, seed?: number): void {
+  historicalSequenceCache = generateHistoricalSequence(
+    SP500_HISTORICAL_RETURNS,
+    sequenceLength,
+    seed
+  );
+  historicalSequenceIndex = 0;
+}
+
+/**
+ * Get next return from historical sequence
+ * Returns random historical return if not initialized
+ */
+export function getNextHistoricalReturn(): number {
+  if (!historicalSequenceCache || historicalSequenceIndex >= historicalSequenceCache.length) {
+    // Fallback: return a random historical year
+    const randomIndex = Math.floor(Math.random() * SP500_HISTORICAL_RETURNS.length);
+    return SP500_HISTORICAL_RETURNS[randomIndex].nominalReturn / 100;
+  }
+
+  const returnValue = historicalSequenceCache[historicalSequenceIndex];
+  historicalSequenceIndex++;
+  return returnValue;
+}
+
+/**
+ * Reset historical simulation state
+ */
+export function resetHistoricalSequence(): void {
+  historicalSequenceCache = null;
+  historicalSequenceIndex = 0;
 }
 
 // Compute an interpolated percentile from a sorted array. We use linear

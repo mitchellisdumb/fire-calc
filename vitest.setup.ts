@@ -12,3 +12,10 @@ global.ResizeObserver = class ResizeObserver {
     // do nothing
   }
 }
+
+// Clear localStorage before each test to prevent state pollution
+import { beforeEach } from 'vitest'
+
+beforeEach(() => {
+  localStorage.clear()
+})

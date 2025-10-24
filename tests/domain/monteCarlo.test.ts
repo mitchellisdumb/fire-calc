@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   runAccumulationMonteCarlo,
   runWithdrawalMonteCarlo,
@@ -28,6 +28,29 @@ describe('runAccumulationMonteCarlo', () => {
       expect(successful.portfolio).toBeGreaterThan(0);
     }
   });
+
+  it('uses deterministic historical returns without random fallback', () => {
+    const inputs = createDefaultInputs();
+    const projections = buildProjections(inputs);
+    const randomSpy = vi.spyOn(Math, 'random').mockImplementation(() => {
+      throw new Error('Historical Monte Carlo should not call Math.random() when seeded.');
+    });
+
+    try {
+      expect(() =>
+        runAccumulationMonteCarlo(inputs, projections, {
+          iterations: 10,
+          volatility: 15,
+          targetSurvival: 90,
+          retirementEndAge: 90,
+          useHistoricalReturns: true,
+        }),
+      ).not.toThrow();
+      expect(randomSpy).not.toHaveBeenCalled();
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
 });
 
 describe('runWithdrawalMonteCarlo', () => {
@@ -52,5 +75,37 @@ describe('runWithdrawalMonteCarlo', () => {
     expect(result.survivalProbability).toBeLessThanOrEqual(100);
     expect(result.depletionProbability).toBeGreaterThanOrEqual(0);
     expect(Object.keys(result.yearlyPercentiles).length).toBeGreaterThan(0);
+  });
+
+  it('uses seeded historical returns without random fallback', () => {
+    const inputs = createDefaultInputs();
+    const projections = buildProjections(inputs);
+    const options: WithdrawalSimulationOptions = {
+      retirementYear: 2045,
+      startingPortfolio: projections.years.find((y) => y.year === 2045)?.portfolio ?? 2000000,
+    };
+    const randomSpy = vi.spyOn(Math, 'random').mockImplementation(() => {
+      throw new Error('Historical Monte Carlo should not call Math.random() when seeded.');
+    });
+
+    try {
+      expect(() =>
+        runWithdrawalMonteCarlo(
+          inputs,
+          projections,
+          {
+            iterations: 10,
+            volatility: 15,
+            targetSurvival: 90,
+            retirementEndAge: 90,
+            useHistoricalReturns: true,
+          },
+          options,
+        ),
+      ).not.toThrow();
+      expect(randomSpy).not.toHaveBeenCalled();
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 });

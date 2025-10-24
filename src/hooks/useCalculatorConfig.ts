@@ -71,6 +71,7 @@ const initialFormState: CalculatorForm = {
   mcVolatility: 15,
   mcTargetSurvival: 90,
   mcRetirementEndAge: 90,
+  mcUseHistoricalReturns: false,
   withdrawalRate: 4,
 }
 
@@ -82,12 +83,46 @@ if (!initialValidated.success || !initialValidated.data) {
   throw new Error('Invalid initial calculator configuration')
 }
 
+// Load state from localStorage on mount if available
+function loadSavedState(): CalculatorForm | null {
+  try {
+    const saved = localStorage.getItem('fireCalcState')
+    if (!saved) return null
+
+    const parsed = JSON.parse(saved)
+
+    // Validate the loaded state
+    const validation = validateCalculatorForm(parsed)
+    if (validation.success && validation.data) {
+      return validation.data
+    }
+
+    // If invalid, clear localStorage and return null
+    localStorage.removeItem('fireCalcState')
+    return null
+  } catch (error) {
+    console.error('Error loading saved state:', error)
+    localStorage.removeItem('fireCalcState')
+    return null
+  }
+}
+
 export function useCalculatorConfig() {
-  const [state, setState] = useState<CalculatorForm>(initialFormState)
+  const savedState = loadSavedState()
+  const [state, setState] = useState<CalculatorForm>(savedState || initialFormState)
   const [lastValidInputs, setLastValidInputs] = useState<CalculatorInput>(
     initialValidated.data,
   )
   const [validationIssues, setValidationIssues] = useState<string[]>([])
+
+  // Save state to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('fireCalcState', JSON.stringify(state))
+    } catch (error) {
+      console.error('Error saving state:', error)
+    }
+  }, [state])
 
   // Consumers call updateField whenever an input changes. We allow temporarily
   // invalid data (e.g., blank fields) so the UI feels responsive, but we keep a
@@ -110,6 +145,14 @@ export function useCalculatorConfig() {
     },
     [],
   )
+
+  // Reset to default state
+  const resetToDefaults = useCallback(() => {
+    localStorage.removeItem('fireCalcState')
+    setState(initialFormState)
+    setLastValidInputs(initialValidated.data)
+    setValidationIssues([])
+  }, [])
 
   // Withdrawal rate is 100 / multiple, but only when the multiple is valid. This
   // lets the UI highlight errors without silently substituting a different value.
@@ -152,6 +195,7 @@ export function useCalculatorConfig() {
       volatility: state.mcVolatility,
       targetSurvival: state.mcTargetSurvival,
       retirementEndAge: state.mcRetirementEndAge,
+      useHistoricalReturns: state.mcUseHistoricalReturns,
     }),
     [
       state.mcEnabled,
@@ -159,6 +203,7 @@ export function useCalculatorConfig() {
       state.mcVolatility,
       state.mcTargetSurvival,
       state.mcRetirementEndAge,
+      state.mcUseHistoricalReturns,
     ],
   )
 
@@ -166,6 +211,7 @@ export function useCalculatorConfig() {
     currentYear: CURRENT_YEAR,
     state,
     updateField,
+    resetToDefaults,
     calculatorInputs: lastValidInputs as CalculatorInputs,
     mcSettings,
     validationIssues,
