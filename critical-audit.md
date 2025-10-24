@@ -98,6 +98,11 @@ $100k wages (2 x $50k):
 - ✅ All lognormal returns bounded above -100%
 - ✅ No NaN or undefined values in test runs
 
+### 10. Validation & Precision (New)
+- ✅ Form values validated via `validateCalculatorForm`; invalid ranges are rejected and surfaced to the UI.
+- ✅ Decimal helpers (`domain/money.ts`) eliminate floating-point drift across projections and Monte Carlo.
+- ✅ New regression suite (`tests/domain/engine.invariants.test.ts`) fuzzes random inputs and runs deterministic Monte Carlo checks to assert balances remain finite.
+
 ### 10. Data Flow Integrity
 - ✅ Wage income calculated correctly across career phases
 - ✅ Rental income properly flows through tax AND cash flow calculations

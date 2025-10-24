@@ -1,8 +1,9 @@
-import { calculateEmployerMatch } from './contributions';
-import { getCravathSalary } from './career';
-import { calculateMortgageInterest } from './mortgage';
-import { calculateTaxes } from './taxes';
-import { CalculatorInputs, ProjectionResult, ProjectionYear } from './types';
+import { calculateEmployerMatch } from './contributions'
+import { getCravathSalary } from './career'
+import { calculateMortgageInterest } from './mortgage'
+import { calculateTaxes } from './taxes'
+import { CalculatorInputs, ProjectionResult, ProjectionYear } from './types'
+import { add, clampMin, dec, percentage, toNumber } from './money'
 
 export function buildProjections(inputs: CalculatorInputs): ProjectionResult {
   const {
@@ -63,8 +64,10 @@ export function buildProjections(inputs: CalculatorInputs): ProjectionResult {
 
   const years: ProjectionYear[] = [];
 
-  let taxAdvPortfolio = (initialSavings * (100 - initialTaxablePct)) / 100;
-  let taxablePortfolio = (initialSavings * initialTaxablePct) / 100;
+  let taxAdvPortfolio = dec(initialSavings)
+    .mul(dec(100).sub(initialTaxablePct))
+    .div(100)
+  let taxablePortfolio = dec(initialSavings).mul(initialTaxablePct).div(100)
   let daughter1_529 = initial529Balance / 2;
   let daughter2_529 = initial529Balance / 2;
   let fireAchieved = false;
@@ -322,19 +325,23 @@ export function buildProjections(inputs: CalculatorInputs): ProjectionResult {
       }
     }
 
-    const taxAdvGrowth = taxAdvPortfolio * (taxAdvReturnRate / 100);
-    const taxableGrowth = taxablePortfolio * (taxableReturnRate / 100);
+    const prevTaxAdvPortfolio = taxAdvPortfolio;
+    const prevTaxablePortfolio = taxablePortfolio;
 
-    taxAdvPortfolio = taxAdvPortfolio + taxAdvGrowth + taxAdvContribution;
-    taxablePortfolio =
-      taxablePortfolio + taxableGrowth + taxableContribution - taxableWithdrawal;
+    const taxAdvGrowth = taxAdvPortfolio.mul(taxAdvReturnRate).div(100);
+    const taxableGrowth = taxablePortfolio.mul(taxableReturnRate).div(100);
 
-    if (taxablePortfolio < 0) {
-      taxablePortfolio = 0;
-    }
+    taxAdvPortfolio = taxAdvPortfolio.add(taxAdvGrowth).add(taxAdvContribution);
+    taxablePortfolio = taxablePortfolio
+      .add(taxableGrowth)
+      .add(taxableContribution)
+      .sub(taxableWithdrawal);
 
-    const totalPortfolio = taxAdvPortfolio + taxablePortfolio;
-    const portfolioGrowth = taxAdvGrowth + taxableGrowth;
+    taxAdvPortfolio = clampMin(taxAdvPortfolio, 0);
+    taxablePortfolio = clampMin(taxablePortfolio, 0);
+
+    const portfolioGrowth = taxAdvGrowth.add(taxableGrowth);
+    const totalPortfolio = taxAdvPortfolio.add(taxablePortfolio);
 
     let collegeReserveNeeded = 0;
 
@@ -389,8 +396,10 @@ export function buildProjections(inputs: CalculatorInputs): ProjectionResult {
     }
 
     const fireTargetExpenses = fireExpenseTarget * inflationFactor;
-    const sustainableWithdrawal =
-      targetPortfolioMultiple > 0 ? totalPortfolio / targetPortfolioMultiple : 0;
+    const sustainableWithdrawalDec =
+      targetPortfolioMultiple > 0
+        ? totalPortfolio.div(targetPortfolioMultiple)
+        : dec(0);
 
     let healthcareBuffer = 0;
     if (includeHealthcareBuffer) {
@@ -399,12 +408,12 @@ export function buildProjections(inputs: CalculatorInputs): ProjectionResult {
       healthcareBuffer = healthcareCostInflated * yearsUntilMedicare;
     }
 
-    const fireTarget =
-      fireTargetExpenses * (targetPortfolioMultiple > 0 ? targetPortfolioMultiple : 0) +
-      collegeReserveNeeded +
-      healthcareBuffer;
+    const fireTargetDec = dec(fireTargetExpenses)
+      .mul(targetPortfolioMultiple > 0 ? targetPortfolioMultiple : 0)
+      .add(collegeReserveNeeded)
+      .add(healthcareBuffer);
 
-    if (!fireAchieved && totalPortfolio >= fireTarget) {
+    if (!fireAchieved && totalPortfolio.greaterThanOrEqualTo(fireTargetDec)) {
       fireAchieved = true;
       fireYear = year;
     }
@@ -438,18 +447,18 @@ export function buildProjections(inputs: CalculatorInputs): ProjectionResult {
       taxAdvContribution: Math.round(taxAdvContribution),
       taxableContribution: Math.round(taxableContribution),
       taxableWithdrawal: Math.round(taxableWithdrawal),
-      portfolioGrowth: Math.round(portfolioGrowth),
-      portfolio: Math.round(totalPortfolio),
-      taxAdvPortfolio: Math.round(taxAdvPortfolio),
-      taxablePortfolio: Math.round(taxablePortfolio),
+      portfolioGrowth: Math.round(toNumber(portfolioGrowth)),
+      portfolio: Math.round(toNumber(totalPortfolio)),
+      taxAdvPortfolio: Math.round(toNumber(taxAdvPortfolio)),
+      taxablePortfolio: Math.round(toNumber(taxablePortfolio)),
       daughter1_529: Math.round(daughter1_529),
       daughter2_529: Math.round(daughter2_529),
       total529: Math.round(daughter1_529 + daughter2_529),
-      sustainableWithdrawal: Math.round(sustainableWithdrawal),
-      fireTarget: Math.round(fireTarget),
+      sustainableWithdrawal: Math.round(toNumber(sustainableWithdrawalDec)),
+      fireTarget: Math.round(toNumber(fireTargetDec)),
       collegeReserveNeeded: Math.round(collegeReserveNeeded),
       healthcareBuffer: Math.round(healthcareBuffer),
-      isFIRE: totalPortfolio >= fireTarget,
+      isFIRE: totalPortfolio.greaterThanOrEqualTo(fireTargetDec),
       deficit,
     });
   }

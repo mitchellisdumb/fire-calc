@@ -1,4 +1,4 @@
-import { calculatePercentile, generateLognormalReturn } from './statistics';
+import { calculatePercentile, generateLognormalReturn } from './statistics'
 import {
   AccumulationMonteCarloResult,
   AccumulationMonteCarloSample,
@@ -12,7 +12,8 @@ import {
   WithdrawalMonteCarloResult,
   WithdrawalSimulationOptions,
   YearlyPercentiles,
-} from './types';
+} from './types'
+import { clampMin, dec, toNumber } from './money'
 
 const PERCENTILES = [10, 25, 50, 75, 90] as const;
 
@@ -52,8 +53,10 @@ export function runAccumulationMonteCarlo(
   const samples: AccumulationMonteCarloSample[] = [];
 
   for (let sim = 0; sim < iterations; sim++) {
-    let taxAdvPortfolio = (initialSavings * (100 - initialTaxablePct)) / 100;
-    let taxablePortfolio = (initialSavings * initialTaxablePct) / 100;
+    let taxAdvPortfolio = dec(initialSavings)
+      .mul(dec(100).sub(initialTaxablePct))
+      .div(100)
+    let taxablePortfolio = dec(initialSavings).mul(initialTaxablePct).div(100)
 
     let crossingYear: number | null = null;
     let crossingPortfolio: number | null = null;
@@ -64,22 +67,24 @@ export function runAccumulationMonteCarlo(
       const taxAdvReturn = generateLognormalReturn(taxAdvReturnRate, volatility);
       const taxReturn = generateLognormalReturn(taxableReturnRate, volatility);
 
-      const taxAdvContribution = baseYear.taxAdvContribution;
-      const taxableContribution = baseYear.taxableContribution;
-      const taxableWithdrawal = baseYear.taxableWithdrawal;
+      const taxAdvContribution = dec(baseYear.taxAdvContribution);
+      const taxableContribution = dec(baseYear.taxableContribution);
+      const taxableWithdrawal = dec(baseYear.taxableWithdrawal);
 
-      taxAdvPortfolio = taxAdvPortfolio * (1 + taxAdvReturn) + taxAdvContribution;
-      taxablePortfolio =
-        taxablePortfolio * (1 + taxReturn) + taxableContribution - taxableWithdrawal;
+      taxAdvPortfolio = taxAdvPortfolio.mul(1 + taxAdvReturn).add(taxAdvContribution);
+      taxablePortfolio = taxablePortfolio
+        .mul(1 + taxReturn)
+        .add(taxableContribution)
+        .sub(taxableWithdrawal);
 
-      if (taxablePortfolio < 0) taxablePortfolio = 0;
-      if (taxAdvPortfolio < 0) taxAdvPortfolio = 0;
+      taxAdvPortfolio = clampMin(taxAdvPortfolio, 0);
+      taxablePortfolio = clampMin(taxablePortfolio, 0);
 
-      const portfolio = taxAdvPortfolio + taxablePortfolio;
+      const portfolio = taxAdvPortfolio.add(taxablePortfolio);
 
-      if (portfolio >= baseYear.fireTarget) {
+      if (portfolio.greaterThanOrEqualTo(baseYear.fireTarget)) {
         crossingYear = baseYear.year;
-        crossingPortfolio = portfolio;
+        crossingPortfolio = toNumber(portfolio);
         break; // stop on first crossing
       }
     }
@@ -206,8 +211,8 @@ export function runWithdrawalMonteCarlo(
   const yearlyResults: Record<number, number[]> = {};
 
   for (let sim = 0; sim < iterations; sim++) {
-    let taxAdvPortfolio = options.startingPortfolio * taxAdvRatio;
-    let taxablePortfolio = options.startingPortfolio * taxableRatio;
+    let taxAdvPortfolio = dec(options.startingPortfolio).mul(taxAdvRatio)
+    let taxablePortfolio = dec(options.startingPortfolio).mul(taxableRatio)
 
     let portfolioDepleted = false;
     let depletionYear: number | null = null;
@@ -221,63 +226,60 @@ export function runWithdrawalMonteCarlo(
       const taxAdvReturn = generateLognormalReturn(taxAdvReturnRate, volatility);
       const taxReturn = generateLognormalReturn(taxableReturnRate, volatility);
 
-      taxAdvPortfolio = taxAdvPortfolio * (1 + taxAdvReturn);
-      taxablePortfolio = taxablePortfolio * (1 + taxReturn);
+      taxAdvPortfolio = taxAdvPortfolio.mul(1 + taxAdvReturn)
+      taxablePortfolio = taxablePortfolio.mul(1 + taxReturn)
 
-      const totalExpenses = base.totalExpenses;
-      const rentalIncome = base.rentalNetCashFlow;
-      const socialSecurityIncome = base.socialSecurityIncome || 0;
-      const netExpenses = Math.max(
-        0,
-        totalExpenses - rentalIncome - socialSecurityIncome,
-      );
+      const totalExpenses = dec(base.totalExpenses)
+      const rentalIncome = dec(base.rentalNetCashFlow)
+      const socialSecurityIncome = dec(base.socialSecurityIncome || 0)
+      const netExpenses = totalExpenses.sub(rentalIncome).sub(socialSecurityIncome)
 
-      if (netExpenses > 0) {
-        let grossNeeded = netExpenses;
+      if (netExpenses.greaterThan(0)) {
+        let grossNeeded = netExpenses
 
         for (let iter = 0; iter < 3; iter++) {
-          let taxOnWithdrawal = 0;
-          const taxableWithdrawal = Math.min(grossNeeded, taxablePortfolio);
-          const taxAdvWithdrawal = Math.max(0, grossNeeded - taxableWithdrawal);
+          let taxOnWithdrawal = dec(0)
+          const taxableWithdrawal = grossNeeded.lessThanOrEqualTo(taxablePortfolio)
+            ? grossNeeded
+            : taxablePortfolio
+          const taxAdvWithdrawal = grossNeeded.sub(taxableWithdrawal)
 
-          if (taxableWithdrawal > 0) {
-            taxOnWithdrawal += taxableWithdrawal * 0.15;
+          if (taxableWithdrawal.greaterThan(0)) {
+            taxOnWithdrawal = taxOnWithdrawal.add(taxableWithdrawal.mul(0.15))
           }
 
-          if (taxAdvWithdrawal > 0) {
-            taxOnWithdrawal += taxAdvWithdrawal * 0.31;
+          if (taxAdvWithdrawal.greaterThan(0)) {
+            taxOnWithdrawal = taxOnWithdrawal.add(taxAdvWithdrawal.mul(0.31))
           }
 
-          grossNeeded = netExpenses + taxOnWithdrawal;
+          grossNeeded = netExpenses.add(taxOnWithdrawal)
         }
 
-        const totalWithdrawal = grossNeeded;
-
-        if (taxablePortfolio >= totalWithdrawal) {
-          taxablePortfolio -= totalWithdrawal;
+        if (taxablePortfolio.greaterThanOrEqualTo(grossNeeded)) {
+          taxablePortfolio = taxablePortfolio.sub(grossNeeded)
         } else {
-          const remainingNeeded = totalWithdrawal - taxablePortfolio;
-          taxablePortfolio = 0;
-          taxAdvPortfolio = Math.max(0, taxAdvPortfolio - remainingNeeded);
+          const remainingNeeded = grossNeeded.sub(taxablePortfolio)
+          taxablePortfolio = dec(0)
+          taxAdvPortfolio = clampMin(taxAdvPortfolio.sub(remainingNeeded), 0)
         }
       }
 
-      if (taxablePortfolio < 0) taxablePortfolio = 0;
-      if (taxAdvPortfolio < 0) taxAdvPortfolio = 0;
+      taxablePortfolio = clampMin(taxablePortfolio, 0)
+      taxAdvPortfolio = clampMin(taxAdvPortfolio, 0)
 
-      const currentPortfolio = taxAdvPortfolio + taxablePortfolio;
+      const currentPortfolio = taxAdvPortfolio.add(taxablePortfolio)
 
-      if (!portfolioDepleted && currentPortfolio < 1000) {
+      if (!portfolioDepleted && currentPortfolio.lessThan(1000)) {
         portfolioDepleted = true;
         depletionYear = year;
       }
 
-      if (!yearlyResults[year]) yearlyResults[year] = [];
-      yearlyResults[year].push(currentPortfolio);
+      if (!yearlyResults[year]) yearlyResults[year] = []
+      yearlyResults[year].push(toNumber(currentPortfolio))
 
       simYears.push({
         year,
-        portfolio: currentPortfolio,
+        portfolio: toNumber(currentPortfolio),
         fireAchieved: yearIdx === retirementIndex,
         retired: true,
       });

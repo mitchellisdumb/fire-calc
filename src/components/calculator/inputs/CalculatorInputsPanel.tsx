@@ -1,3 +1,4 @@
+import { useCallback, type ReactNode } from 'react';
 import { CalculatorFormState } from '../../../hooks/useCalculatorConfig';
 
 type UpdateField = <Key extends keyof CalculatorFormState>(
@@ -5,12 +6,173 @@ type UpdateField = <Key extends keyof CalculatorFormState>(
   value: CalculatorFormState[Key],
 ) => void;
 
+const currencyFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+});
+
+const currencyFields: Array<keyof CalculatorFormState> = [
+  'initialSavings',
+  'monthlyExpenses',
+  'propertyTax',
+  'fireExpenseTarget',
+  'annualHealthcareCost',
+  'spouseIncome2025',
+  'myIncome2025',
+  'clerkingSalary',
+  'publicInterestSalary',
+  'mySocialSecurityAmount',
+  'spouseSocialSecurityAmount',
+  'tuitionPerSemester',
+  'initial529Balance',
+  'annual529Contribution',
+  'collegeCostPerYear',
+  'rentalIncome',
+  'rentalMortgagePandI',
+  'rentalMortgageOriginalPrincipal',
+  'rentalPropertyTax',
+  'rentalInsurance',
+  'rentalMaintenanceCapex',
+  'standardDeduction',
+  'itemizedDeductions',
+  'ssWageBase2025',
+];
+
+const currencyFieldSet = new Set(currencyFields);
+
+type TooltipKey = keyof CalculatorFormState | 'includeHealthcareBuffer' | 'mcEnabled';
+
+const fieldTooltips: Partial<Record<TooltipKey, string>> = {
+  initialSavings: "Starting combined balance across taxable and tax-deferred accounts in base-year dollars.",
+  initialTaxablePct: "Share of the starting portfolio held in taxable accounts; the remainder flows into tax-advantaged accounts.",
+  monthlyExpenses: "Current monthly spending that drives the baseline budget and inflates at the general inflation rate each year.",
+  propertyTax: "Current annual property tax bill; future years grow using the Property Tax Growth percentage.",
+  propertyTaxGrowth: "Annual percentage increase applied to the property tax line (2% approximates California Prop 13).",
+  inflationRate: "General CPI assumption applied to wages, living expenses, and tax brackets throughout the projection.",
+  fireExpenseTarget: "Desired annual retirement spending in today's dollars; escalated each year by the inflation rate.",
+  targetPortfolioMultiple: "Target nest egg expressed as a multiple of annual spending; used to derive the effective withdrawal rate.",
+  includeHealthcareBuffer: "Adds the healthcare buffer amount to retirement spending until Medicare eligibility when enabled.",
+  annualHealthcareCost: "Additional annual healthcare cost prior to Medicare; specified in today's dollars and inflated each year.",
+  spendingDecrement65to74: "Annual real spending reduction applied between ages 65 and 74 to reflect lower discretionary costs.",
+  spendingDecrement75to84: "Annual real spending reduction applied between ages 75 and 84.",
+  spendingDecrement85plus: "Annual real spending reduction applied from age 85 onward.",
+  taxAdvReturnRate: "Nominal annual return assumption for tax-advantaged accounts before subtracting inflation.",
+  taxableReturnRate: "Nominal annual return assumption for taxable accounts after accounting for dividend and tax drag.",
+  spouseIncome2025: "Spouse's gross W-2 income in the base year; grows with the Spouse Income Growth rate while employed.",
+  spouseIncomeGrowth: "Annual percentage increase applied to spouse income to reflect raises and promotions.",
+  myIncome2025: "Your own salary in the base year before BigLaw begins.",
+  bigLawStartYear: "Calendar year you enter BigLaw; used to start the BigLaw compensation ladder.",
+  clerkingStartYear: "Calendar year you begin clerking; salary and savings adjust accordingly.",
+  clerkingEndYear: "Calendar year the clerkship ends and BigLaw resumes.",
+  clerkingSalary: "Gross annual pay while clerking.",
+  returnToFirmYear: "Associate class year credit when returning to BigLaw post-clerkship (e.g., 3 = third-year associate).",
+  publicInterestYear: "Calendar year you transition into public interest work.",
+  publicInterestSalary: "Starting salary for the public interest role.",
+  publicInterestGrowth: "Annual percentage change applied to the public interest salary schedule.",
+  mySocialSecurityAmount: "Estimated annual Social Security benefit for you at the chosen claiming age (nominal dollars).",
+  mySocialSecurityStartAge: "Age when your Social Security benefit begins.",
+  spouseSocialSecurityAmount: "Estimated annual Social Security benefit for your spouse at the selected claiming age.",
+  spouseSocialSecurityStartAge: "Age when the spouse's Social Security benefit starts.",
+  tuitionPerSemester: "Law school tuition per semester stated in base-year dollars; grows with the college inflation rate.",
+  daughter1Birth: "Birth year for child #1; drives their college timeline and 529 withdrawals.",
+  daughter2Birth: "Birth year for child #2; drives their college timeline and 529 withdrawals.",
+  initial529Balance: "Combined current balance across both 529 plans.",
+  annual529Contribution: "Total annual contribution per child into their 529 account.",
+  collegeCostPerYear: "All-in annual cost of attendance per child before inflation adjustments.",
+  collegeInflation: "Annual percentage increase applied to college costs and tuition.",
+  rentalIncome: "Monthly gross rent collected from the rental property; increases with the general inflation rate.",
+  rentalMortgagePandI: "Monthly principal and interest payment on the rental mortgage schedule.",
+  mortgageEndYear: "First calendar year in which the rental mortgage is fully paid off.",
+  rentalPropertyTax: "Current annual property tax for the rental; inflates with the rental property tax growth rate.",
+  rentalPropertyTaxGrowth: "Annual percentage change applied to the rental property tax line item.",
+  rentalInsurance: "Annual insurance premium for the rental property.",
+  rentalMaintenanceCapex: "Annual reserve for maintenance and capital improvements on the rental.",
+  rentalVacancyRate: "Percentage of the rental year assumed to be vacant; reduces rental income accordingly.",
+  standardDeduction: "Standard deduction amount; the model uses the higher of standard or itemized deductions each year.",
+  itemizedDeductions: "Other itemized deductions available (mortgage interest, SALT, etc.); compared against the standard deduction.",
+  ssWageBase2025: "Social Security wage base limit for the base year (wages above this avoid the 6.2% OASDI tax).",
+  ssWageBaseGrowth: "Assumed annual growth rate applied to the Social Security wage base.",
+  mcEnabled: "Toggle to run randomized return scenarios; leave off for the deterministic projection.",
+  mcIterations: "Number of Monte Carlo simulation runs; higher values improve stability but take longer.",
+  mcVolatility: "Standard deviation of annual returns used for Monte Carlo draws.",
+  mcTargetSurvival: "Required percentage of successful Monte Carlo runs that finish above zero.",
+  mcRetirementEndAge: "Final age evaluated in Monte Carlo survival calculations.",
+};
+
+const TooltipIcon = ({ field }: { field: TooltipKey }) => {
+  const tooltip = fieldTooltips[field];
+  if (!tooltip) {
+    return null;
+  }
+  return (
+    <span
+      className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-blue-100 text-[11px] font-semibold text-blue-700"
+      data-tooltip={tooltip}
+      aria-label={tooltip}
+      role="img"
+    >
+      ?
+    </span>
+  );
+};
+
+const FieldLabel = ({
+  field,
+  text,
+  className = 'block text-sm text-gray-600',
+}: {
+  field: TooltipKey;
+  text: string;
+  className?: string;
+}) => (
+  <label className={className}>
+    <span className="inline-flex items-center gap-1">
+      {text}
+      <TooltipIcon field={field} />
+    </span>
+  </label>
+);
+
+const FieldCheckboxLabel = ({
+  field,
+  text,
+  children,
+}: {
+  field: TooltipKey;
+  text: string;
+  children: ReactNode;
+}) => (
+  <label className="flex items-center gap-2 text-sm text-gray-600">
+    {children}
+    <span className="inline-flex items-center gap-1">
+      {text}
+      <TooltipIcon field={field} />
+    </span>
+  </label>
+);
+
+const getInputType = (key: keyof CalculatorFormState): 'number' | 'text' =>
+  currencyFieldSet.has(key) ? 'text' : 'number';
+
+const parseNumericInput = (value: string): number => {
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    return Number.NaN;
+  }
+  const normalized = trimmed.replace(/[$,]/g, '');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+};
+
 interface CalculatorInputsPanelProps {
   state: CalculatorFormState;
   updateField: UpdateField;
   currentYear: number;
   derivedWithdrawalRate: number;
   mcRunning: boolean;
+  validationIssues: string[];
   onRunMonteCarlo: () => void;
 }
 
@@ -19,9 +181,27 @@ export default function CalculatorInputsPanel({
   updateField,
   currentYear,
   derivedWithdrawalRate,
+  validationIssues,
   mcRunning,
   onRunMonteCarlo,
 }: CalculatorInputsPanelProps) {
+  const getDisplayValue = useCallback(
+    <Key extends keyof CalculatorFormState>(key: Key) => {
+      const rawValue = state[key];
+      if (typeof rawValue !== 'number') {
+        return rawValue;
+      }
+      if (!Number.isFinite(rawValue)) {
+        return '';
+      }
+      if (currencyFieldSet.has(key)) {
+        return currencyFormatter.format(rawValue);
+      }
+      return rawValue;
+    },
+    [state],
+  );
+
   const {
     initialSavings,
     initialTaxablePct,
@@ -79,26 +259,38 @@ export default function CalculatorInputsPanel({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      {validationIssues.length > 0 && (
+        <div className="lg:col-span-2 border border-red-200 bg-red-50 text-red-800 text-sm rounded-lg px-4 py-3">
+          <p className="font-semibold mb-1">Please review the highlighted validation issues:</p>
+          <ul className="list-disc list-inside space-y-1">
+            {validationIssues.map((issue, index) => (
+              <li key={`${issue}-${index}`}>{issue}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <details className="bg-white border border-gray-200 rounded-lg shadow-sm" open>
         <summary className="cursor-pointer font-semibold text-lg px-4 py-3 border-b">
           Current Portfolio & Savings
         </summary>
         <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-gray-600">Current Portfolio Balance</label>
+            <FieldLabel field="initialSavings" text="Current Portfolio Balance" />
             <input
-              type="number"
-              value={initialSavings}
-              onChange={(e) => updateField('initialSavings', Number(e.target.value))}
+              type={getInputType('initialSavings')}
+                inputMode="decimal"
+              value={getDisplayValue('initialSavings')}
+              onChange={(e) => updateField('initialSavings', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Taxable Allocation (%)</label>
+            <FieldLabel field="initialTaxablePct" text="Taxable Allocation (%)" />
             <input
-              type="number"
-              value={initialTaxablePct}
-              onChange={(e) => updateField('initialTaxablePct', Number(e.target.value))}
+              type={getInputType('initialTaxablePct')}
+                inputMode="decimal"
+              value={getDisplayValue('initialTaxablePct')}
+              onChange={(e) => updateField('initialTaxablePct', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
@@ -114,40 +306,44 @@ export default function CalculatorInputsPanel({
         </summary>
         <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-gray-600">Monthly Expenses</label>
+            <FieldLabel field="monthlyExpenses" text="Monthly Expenses" />
             <input
-              type="number"
-              value={monthlyExpenses}
-              onChange={(e) => updateField('monthlyExpenses', Number(e.target.value))}
+              type={getInputType('monthlyExpenses')}
+                inputMode="decimal"
+              value={getDisplayValue('monthlyExpenses')}
+              onChange={(e) => updateField('monthlyExpenses', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Annual Property Tax</label>
+            <FieldLabel field="propertyTax" text="Annual Property Tax" />
             <input
-              type="number"
-              value={propertyTax}
-              onChange={(e) => updateField('propertyTax', Number(e.target.value))}
+              type={getInputType('propertyTax')}
+                inputMode="decimal"
+              value={getDisplayValue('propertyTax')}
+              onChange={(e) => updateField('propertyTax', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Property Tax Growth (%)</label>
+            <FieldLabel field="propertyTaxGrowth" text="Property Tax Growth (%)" />
             <input
-              type="number"
+              type={getInputType('propertyTaxGrowth')}
+                inputMode="decimal"
               step="0.1"
-              value={propertyTaxGrowth}
-              onChange={(e) => updateField('propertyTaxGrowth', Number(e.target.value))}
+              value={getDisplayValue('propertyTaxGrowth')}
+              onChange={(e) => updateField('propertyTaxGrowth', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Inflation Rate (%)</label>
+            <FieldLabel field="inflationRate" text="Inflation Rate (%)" />
             <input
-              type="number"
+              type={getInputType('inflationRate')}
+                inputMode="decimal"
               step="0.1"
-              value={inflationRate}
-              onChange={(e) => updateField('inflationRate', Number(e.target.value))}
+              value={getDisplayValue('inflationRate')}
+              onChange={(e) => updateField('inflationRate', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
@@ -160,24 +356,24 @@ export default function CalculatorInputsPanel({
         </summary>
         <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-gray-600">Annual FIRE Spending Target</label>
+            <FieldLabel field="fireExpenseTarget" text="Annual FIRE Spending Target" />
             <input
-              type="number"
-              value={fireExpenseTarget}
-              onChange={(e) => updateField('fireExpenseTarget', Number(e.target.value))}
+              type={getInputType('fireExpenseTarget')}
+                inputMode="decimal"
+              value={getDisplayValue('fireExpenseTarget')}
+              onChange={(e) => updateField('fireExpenseTarget', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">
-              Target Portfolio Multiple (× annual spending)
-            </label>
+            <FieldLabel field="targetPortfolioMultiple" text="Target Portfolio Multiple (× annual spending)" />
             <input
-              type="number"
+              type={getInputType('targetPortfolioMultiple')}
+                inputMode="decimal"
               step="0.5"
               min="1"
-              value={targetPortfolioMultiple}
-              onChange={(e) => updateField('targetPortfolioMultiple', Number(e.target.value))}
+              value={getDisplayValue('targetPortfolioMultiple')}
+              onChange={(e) => updateField('targetPortfolioMultiple', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
             <p className="text-xs text-gray-500 mt-1">
@@ -185,55 +381,70 @@ export default function CalculatorInputsPanel({
             </p>
           </div>
           <div className="md:col-span-2">
-            <label className="flex items-center gap-2 text-sm text-gray-600">
+            <FieldCheckboxLabel field="includeHealthcareBuffer" text="Include healthcare buffer until Medicare eligibility">
               <input
                 type="checkbox"
                 checked={includeHealthcareBuffer}
                 onChange={(e) => updateField('includeHealthcareBuffer', e.target.checked)}
                 className="rounded"
               />
-              Include healthcare buffer until Medicare eligibility
-            </label>
+            </FieldCheckboxLabel>
           </div>
           {includeHealthcareBuffer && (
             <div>
-              <label className="block text-sm text-gray-600">Annual Healthcare Cost</label>
+              <FieldLabel field="annualHealthcareCost" text="Annual Healthcare Cost" />
               <input
-                type="number"
-                value={annualHealthcareCost}
-                onChange={(e) => updateField('annualHealthcareCost', Number(e.target.value))}
+                type={getInputType('annualHealthcareCost')}
+                inputMode="decimal"
+                value={getDisplayValue('annualHealthcareCost')}
+                onChange={(e) => updateField('annualHealthcareCost', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
           )}
           <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs text-gray-500">Spend Decrement 65-74 (%/yr)</label>
+              <FieldLabel
+                field="spendingDecrement65to74"
+                text="Spend Decrement 65-74 (%/yr)"
+                className="block text-xs text-gray-500"
+              />
               <input
-                type="number"
+                type={getInputType('spendingDecrement65to74')}
+                inputMode="decimal"
                 step="0.5"
-                value={spendingDecrement65to74}
-                onChange={(e) => updateField('spendingDecrement65to74', Number(e.target.value))}
+                value={getDisplayValue('spendingDecrement65to74')}
+                onChange={(e) => updateField('spendingDecrement65to74', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500">Spend Decrement 75-84 (%/yr)</label>
+              <FieldLabel
+                field="spendingDecrement75to84"
+                text="Spend Decrement 75-84 (%/yr)"
+                className="block text-xs text-gray-500"
+              />
               <input
-                type="number"
+                type={getInputType('spendingDecrement75to84')}
+                inputMode="decimal"
                 step="0.5"
-                value={spendingDecrement75to84}
-                onChange={(e) => updateField('spendingDecrement75to84', Number(e.target.value))}
+                value={getDisplayValue('spendingDecrement75to84')}
+                onChange={(e) => updateField('spendingDecrement75to84', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500">Spend Decrement 85+ (%/yr)</label>
+              <FieldLabel
+                field="spendingDecrement85plus"
+                text="Spend Decrement 85+ (%/yr)"
+                className="block text-xs text-gray-500"
+              />
               <input
-                type="number"
+                type={getInputType('spendingDecrement85plus')}
+                inputMode="decimal"
                 step="0.5"
-                value={spendingDecrement85plus}
-                onChange={(e) => updateField('spendingDecrement85plus', Number(e.target.value))}
+                value={getDisplayValue('spendingDecrement85plus')}
+                onChange={(e) => updateField('spendingDecrement85plus', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
@@ -247,22 +458,24 @@ export default function CalculatorInputsPanel({
         </summary>
         <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-gray-600">Tax-Advantaged Return (%)</label>
+            <FieldLabel field="taxAdvReturnRate" text="Tax-Advantaged Return (%)" />
             <input
-              type="number"
+              type={getInputType('taxAdvReturnRate')}
+                inputMode="decimal"
               step="0.1"
-              value={taxAdvReturnRate}
-              onChange={(e) => updateField('taxAdvReturnRate', Number(e.target.value))}
+              value={getDisplayValue('taxAdvReturnRate')}
+              onChange={(e) => updateField('taxAdvReturnRate', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Taxable Return (%)</label>
+            <FieldLabel field="taxableReturnRate" text="Taxable Return (%)" />
             <input
-              type="number"
+              type={getInputType('taxableReturnRate')}
+                inputMode="decimal"
               step="0.1"
-              value={taxableReturnRate}
-              onChange={(e) => updateField('taxableReturnRate', Number(e.target.value))}
+              value={getDisplayValue('taxableReturnRate')}
+              onChange={(e) => updateField('taxableReturnRate', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
@@ -276,21 +489,23 @@ export default function CalculatorInputsPanel({
         <div className="p-4 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm text-gray-600">Spouse Income (2025)</label>
+            <FieldLabel field="spouseIncome2025" text="Spouse Income (2025)" />
               <input
-                type="number"
-                value={spouseIncome2025}
-                onChange={(e) => updateField('spouseIncome2025', Number(e.target.value))}
+                type={getInputType('spouseIncome2025')}
+                inputMode="decimal"
+                value={getDisplayValue('spouseIncome2025')}
+                onChange={(e) => updateField('spouseIncome2025', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">Spouse Income Growth (%)</label>
+            <FieldLabel field="spouseIncomeGrowth" text="Spouse Income Growth (%)" />
               <input
-                type="number"
+                type={getInputType('spouseIncomeGrowth')}
+                inputMode="decimal"
                 step="0.1"
-                value={spouseIncomeGrowth}
-                onChange={(e) => updateField('spouseIncomeGrowth', Number(e.target.value))}
+                value={getDisplayValue('spouseIncomeGrowth')}
+                onChange={(e) => updateField('spouseIncomeGrowth', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
@@ -298,56 +513,62 @@ export default function CalculatorInputsPanel({
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm text-gray-600">My Income (2025)</label>
+              <FieldLabel field="myIncome2025" text="My Income (2025)" />
               <input
-                type="number"
-                value={myIncome2025}
-                onChange={(e) => updateField('myIncome2025', Number(e.target.value))}
+                type={getInputType('myIncome2025')}
+                inputMode="decimal"
+                value={getDisplayValue('myIncome2025')}
+                onChange={(e) => updateField('myIncome2025', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">BigLaw Start Year</label>
+              <FieldLabel field="bigLawStartYear" text="BigLaw Start Year" />
               <input
-                type="number"
-                value={bigLawStartYear}
-                onChange={(e) => updateField('bigLawStartYear', Number(e.target.value))}
+                type={getInputType('bigLawStartYear')}
+                inputMode="decimal"
+                value={getDisplayValue('bigLawStartYear')}
+                onChange={(e) => updateField('bigLawStartYear', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">Clerking Start Year</label>
+              <FieldLabel field="clerkingStartYear" text="Clerking Start Year" />
               <input
-                type="number"
-                value={clerkingStartYear}
-                onChange={(e) => updateField('clerkingStartYear', Number(e.target.value))}
+                type={getInputType('clerkingStartYear')}
+                inputMode="decimal"
+                value={getDisplayValue('clerkingStartYear')}
+                onChange={(e) => updateField('clerkingStartYear', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">Clerking End Year</label>
+              <FieldLabel field="clerkingEndYear" text="Clerking End Year" />
               <input
-                type="number"
-                value={clerkingEndYear}
-                onChange={(e) => updateField('clerkingEndYear', Number(e.target.value))}
+                type={getInputType('clerkingEndYear')}
+                inputMode="decimal"
+                value={getDisplayValue('clerkingEndYear')}
+                onChange={(e) => updateField('clerkingEndYear', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">Clerking Salary</label>
+              <FieldLabel field="clerkingSalary" text="Clerking Salary" />
               <input
-                type="number"
-                value={clerkingSalary}
-                onChange={(e) => updateField('clerkingSalary', Number(e.target.value))}
+                type={getInputType('clerkingSalary')}
+                inputMode="decimal"
+                value={getDisplayValue('clerkingSalary')}
+                onChange={(e) => updateField('clerkingSalary', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">Return-to-Firm Class Year</label>
+              <FieldLabel field="returnToFirmYear" text="Return-to-Firm Class Year" />
               <input
-                type="number"
-                value={returnToFirmYear}
-                onChange={(e) => updateField('returnToFirmYear', Number(e.target.value))}
+                type={getInputType('returnToFirmYear')}
+                inputMode="decimal"
+                value={getDisplayValue('returnToFirmYear')}
+                onChange={(e) => updateField('returnToFirmYear', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
@@ -355,30 +576,33 @@ export default function CalculatorInputsPanel({
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm text-gray-600">Public Interest Start</label>
+              <FieldLabel field="publicInterestYear" text="Public Interest Start" />
               <input
-                type="number"
-                value={publicInterestYear}
-                onChange={(e) => updateField('publicInterestYear', Number(e.target.value))}
+                type={getInputType('publicInterestYear')}
+                inputMode="decimal"
+                value={getDisplayValue('publicInterestYear')}
+                onChange={(e) => updateField('publicInterestYear', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">Public Interest Salary</label>
+              <FieldLabel field="publicInterestSalary" text="Public Interest Salary" />
               <input
-                type="number"
-                value={publicInterestSalary}
-                onChange={(e) => updateField('publicInterestSalary', Number(e.target.value))}
+                type={getInputType('publicInterestSalary')}
+                inputMode="decimal"
+                value={getDisplayValue('publicInterestSalary')}
+                onChange={(e) => updateField('publicInterestSalary', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">Public Interest Growth (%)</label>
+              <FieldLabel field="publicInterestGrowth" text="Public Interest Growth (%)" />
               <input
-                type="number"
+                type={getInputType('publicInterestGrowth')}
+                inputMode="decimal"
                 step="0.1"
-                value={publicInterestGrowth}
-                onChange={(e) => updateField('publicInterestGrowth', Number(e.target.value))}
+                value={getDisplayValue('publicInterestGrowth')}
+                onChange={(e) => updateField('publicInterestGrowth', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
@@ -386,38 +610,42 @@ export default function CalculatorInputsPanel({
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
-              <label className="block text-sm text-gray-600">My Social Security ($)</label>
+            <FieldLabel field="mySocialSecurityAmount" text="My Social Security ($)" />
               <input
-                type="number"
-                value={mySocialSecurityAmount}
-                onChange={(e) => updateField('mySocialSecurityAmount', Number(e.target.value))}
+                type={getInputType('mySocialSecurityAmount')}
+                inputMode="decimal"
+                value={getDisplayValue('mySocialSecurityAmount')}
+                onChange={(e) => updateField('mySocialSecurityAmount', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">My SS Start Age</label>
+            <FieldLabel field="mySocialSecurityStartAge" text="My SS Start Age" />
               <input
-                type="number"
-                value={mySocialSecurityStartAge}
-                onChange={(e) => updateField('mySocialSecurityStartAge', Number(e.target.value))}
+                type={getInputType('mySocialSecurityStartAge')}
+                inputMode="decimal"
+                value={getDisplayValue('mySocialSecurityStartAge')}
+                onChange={(e) => updateField('mySocialSecurityStartAge', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">Spouse Social Security ($)</label>
+            <FieldLabel field="spouseSocialSecurityAmount" text="Spouse Social Security ($)" />
               <input
-                type="number"
-                value={spouseSocialSecurityAmount}
-                onChange={(e) => updateField('spouseSocialSecurityAmount', Number(e.target.value))}
+                type={getInputType('spouseSocialSecurityAmount')}
+                inputMode="decimal"
+                value={getDisplayValue('spouseSocialSecurityAmount')}
+                onChange={(e) => updateField('spouseSocialSecurityAmount', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">Spouse SS Start Age</label>
+            <FieldLabel field="spouseSocialSecurityStartAge" text="Spouse SS Start Age" />
               <input
-                type="number"
-                value={spouseSocialSecurityStartAge}
-                onChange={(e) => updateField('spouseSocialSecurityStartAge', Number(e.target.value))}
+                type={getInputType('spouseSocialSecurityStartAge')}
+                inputMode="decimal"
+                value={getDisplayValue('spouseSocialSecurityStartAge')}
+                onChange={(e) => updateField('spouseSocialSecurityStartAge', parseNumericInput(e.target.value))}
                 className="w-full px-3 py-1 border rounded"
               />
             </div>
@@ -431,66 +659,73 @@ export default function CalculatorInputsPanel({
         </summary>
         <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-gray-600">Daughter #1 Birth Year</label>
+            <FieldLabel field="daughter1Birth" text="Daughter #1 Birth Year" />
             <input
-              type="number"
-              value={daughter1Birth}
-              onChange={(e) => updateField('daughter1Birth', Number(e.target.value))}
+              type={getInputType('daughter1Birth')}
+                inputMode="decimal"
+              value={getDisplayValue('daughter1Birth')}
+              onChange={(e) => updateField('daughter1Birth', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Daughter #2 Birth Year</label>
+            <FieldLabel field="daughter2Birth" text="Daughter #2 Birth Year" />
             <input
-              type="number"
-              value={daughter2Birth}
-              onChange={(e) => updateField('daughter2Birth', Number(e.target.value))}
+              type={getInputType('daughter2Birth')}
+                inputMode="decimal"
+              value={getDisplayValue('daughter2Birth')}
+              onChange={(e) => updateField('daughter2Birth', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Initial 529 Balance (total)</label>
+            <FieldLabel field="initial529Balance" text="Initial 529 Balance (total)" />
             <input
-              type="number"
-              value={initial529Balance}
-              onChange={(e) => updateField('initial529Balance', Number(e.target.value))}
+              type={getInputType('initial529Balance')}
+                inputMode="decimal"
+              value={getDisplayValue('initial529Balance')}
+              onChange={(e) => updateField('initial529Balance', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Annual 529 Contribution (per child)</label>
+            <FieldLabel field="annual529Contribution" text="Annual 529 Contribution (per child)" />
             <input
-              type="number"
-              value={annual529Contribution}
-              onChange={(e) => updateField('annual529Contribution', Number(e.target.value))}
+              type={getInputType('annual529Contribution')}
+                inputMode="decimal"
+              value={getDisplayValue('annual529Contribution')}
+              onChange={(e) => updateField('annual529Contribution', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">College Cost per Year</label>
+            <FieldLabel field="collegeCostPerYear" text="College Cost per Year" />
             <input
-              type="number"
-              value={collegeCostPerYear}
-              onChange={(e) => updateField('collegeCostPerYear', Number(e.target.value))}
+              type={getInputType('collegeCostPerYear')}
+                inputMode="decimal"
+              value={getDisplayValue('collegeCostPerYear')}
+              onChange={(e) => updateField('collegeCostPerYear', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">College Inflation (%)</label>
+            <FieldLabel field="collegeInflation" text="College Inflation (%)" />
             <input
-              type="number"
+              type={getInputType('collegeInflation')}
+                inputMode="decimal"
               step="0.1"
-              value={collegeInflation}
-              onChange={(e) => updateField('collegeInflation', Number(e.target.value))}
+              value={getDisplayValue('collegeInflation')}
+              onChange={(e) => updateField('collegeInflation', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div className="md:col-span-2">
-            <label className="block text-sm text-gray-600">Law School Tuition per Semester (2026 dollars)</label>
+            <FieldLabel field="tuitionPerSemester" text="Law School Tuition per Semester (2026 dollars)" />
             <input
-              type="number"
-              value={tuitionPerSemester}
-              onChange={(e) => updateField('tuitionPerSemester', Number(e.target.value))}
+              type={getInputType('tuitionPerSemester')}
+                inputMode="decimal"
+              value={getDisplayValue('tuitionPerSemester')}
+              onChange={(e) => updateField('tuitionPerSemester', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
@@ -503,76 +738,84 @@ export default function CalculatorInputsPanel({
         </summary>
         <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-sm text-gray-600">Monthly Rental Income</label>
+            <FieldLabel field="rentalIncome" text="Monthly Rental Income" />
             <input
-              type="number"
-              value={rentalIncome}
-              onChange={(e) => updateField('rentalIncome', Number(e.target.value))}
+              type={getInputType('rentalIncome')}
+                inputMode="decimal"
+              value={getDisplayValue('rentalIncome')}
+              onChange={(e) => updateField('rentalIncome', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Monthly P&I Payment</label>
+            <FieldLabel field="rentalMortgagePandI" text="Monthly P&I Payment" />
             <input
-              type="number"
-              value={rentalMortgagePandI}
-              onChange={(e) => updateField('rentalMortgagePandI', Number(e.target.value))}
+              type={getInputType('rentalMortgagePandI')}
+                inputMode="decimal"
+              value={getDisplayValue('rentalMortgagePandI')}
+              onChange={(e) => updateField('rentalMortgagePandI', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Mortgage Payoff Year</label>
+            <FieldLabel field="mortgageEndYear" text="Mortgage Payoff Year" />
             <input
-              type="number"
-              value={mortgageEndYear}
-              onChange={(e) => updateField('mortgageEndYear', Number(e.target.value))}
+              type={getInputType('mortgageEndYear')}
+                inputMode="decimal"
+              value={getDisplayValue('mortgageEndYear')}
+              onChange={(e) => updateField('mortgageEndYear', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Property Tax (Prop 13)</label>
+            <FieldLabel field="rentalPropertyTax" text="Property Tax (Prop 13)" />
             <input
-              type="number"
-              value={rentalPropertyTax}
-              onChange={(e) => updateField('rentalPropertyTax', Number(e.target.value))}
+              type={getInputType('rentalPropertyTax')}
+                inputMode="decimal"
+              value={getDisplayValue('rentalPropertyTax')}
+              onChange={(e) => updateField('rentalPropertyTax', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Property Tax Growth (%)</label>
+            <FieldLabel field="rentalPropertyTaxGrowth" text="Property Tax Growth (%)" />
             <input
-              type="number"
+              type={getInputType('rentalPropertyTaxGrowth')}
+                inputMode="decimal"
               step="0.1"
-              value={rentalPropertyTaxGrowth}
-              onChange={(e) => updateField('rentalPropertyTaxGrowth', Number(e.target.value))}
+              value={getDisplayValue('rentalPropertyTaxGrowth')}
+              onChange={(e) => updateField('rentalPropertyTaxGrowth', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Insurance (inflates)</label>
+            <FieldLabel field="rentalInsurance" text="Insurance (inflates)" />
             <input
-              type="number"
-              value={rentalInsurance}
-              onChange={(e) => updateField('rentalInsurance', Number(e.target.value))}
+              type={getInputType('rentalInsurance')}
+                inputMode="decimal"
+              value={getDisplayValue('rentalInsurance')}
+              onChange={(e) => updateField('rentalInsurance', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Maintenance / CapEx</label>
+            <FieldLabel field="rentalMaintenanceCapex" text="Maintenance / CapEx" />
             <input
-              type="number"
-              value={rentalMaintenanceCapex}
-              onChange={(e) => updateField('rentalMaintenanceCapex', Number(e.target.value))}
+              type={getInputType('rentalMaintenanceCapex')}
+                inputMode="decimal"
+              value={getDisplayValue('rentalMaintenanceCapex')}
+              onChange={(e) => updateField('rentalMaintenanceCapex', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Vacancy Rate (%)</label>
+            <FieldLabel field="rentalVacancyRate" text="Vacancy Rate (%)" />
             <input
-              type="number"
+              type={getInputType('rentalVacancyRate')}
+                inputMode="decimal"
               step="0.1"
-              value={rentalVacancyRate}
-              onChange={(e) => updateField('rentalVacancyRate', Number(e.target.value))}
+              value={getDisplayValue('rentalVacancyRate')}
+              onChange={(e) => updateField('rentalVacancyRate', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
@@ -585,20 +828,22 @@ export default function CalculatorInputsPanel({
         </summary>
         <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-gray-600">Standard Deduction (MFJ)</label>
+            <FieldLabel field="standardDeduction" text="Standard Deduction (MFJ)" />
             <input
-              type="number"
-              value={standardDeduction}
-              onChange={(e) => updateField('standardDeduction', Number(e.target.value))}
+              type={getInputType('standardDeduction')}
+                inputMode="decimal"
+              value={getDisplayValue('standardDeduction')}
+              onChange={(e) => updateField('standardDeduction', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Itemized Deductions</label>
+            <FieldLabel field="itemizedDeductions" text="Itemized Deductions" />
             <input
-              type="number"
-              value={itemizedDeductions}
-              onChange={(e) => updateField('itemizedDeductions', Number(e.target.value))}
+              type={getInputType('itemizedDeductions')}
+                inputMode="decimal"
+              value={getDisplayValue('itemizedDeductions')}
+              onChange={(e) => updateField('itemizedDeductions', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
@@ -613,53 +858,56 @@ export default function CalculatorInputsPanel({
           Monte Carlo Settings
         </summary>
         <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-          <label className="flex items-center gap-2 text-sm text-gray-600">
+          <FieldCheckboxLabel field="mcEnabled" text="Enable Monte Carlo simulation (randomized returns)">
             <input
               type="checkbox"
               checked={mcEnabled}
               onChange={(e) => updateField('mcEnabled', e.target.checked)}
               className="rounded"
             />
-            Enable Monte Carlo simulation (randomized returns)
-          </label>
+          </FieldCheckboxLabel>
 
           <div>
-            <label className="block text-sm text-gray-600">Iterations</label>
+            <FieldLabel field="mcIterations" text="Iterations" />
             <input
-              type="number"
-              value={mcIterations}
-              onChange={(e) => updateField('mcIterations', Number(e.target.value))}
+              type={getInputType('mcIterations')}
+                inputMode="decimal"
+              value={getDisplayValue('mcIterations')}
+              onChange={(e) => updateField('mcIterations', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
               min={100}
               step={100}
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Volatility (%)</label>
+            <FieldLabel field="mcVolatility" text="Volatility (%)" />
             <input
-              type="number"
+              type={getInputType('mcVolatility')}
+                inputMode="decimal"
               step="0.5"
-              value={mcVolatility}
-              onChange={(e) => updateField('mcVolatility', Number(e.target.value))}
+              value={getDisplayValue('mcVolatility')}
+              onChange={(e) => updateField('mcVolatility', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Target Survival Rate (%)</label>
+            <FieldLabel field="mcTargetSurvival" text="Target Survival Rate (%)" />
             <input
-              type="number"
+              type={getInputType('mcTargetSurvival')}
+                inputMode="decimal"
               step="1"
-              value={mcTargetSurvival}
-              onChange={(e) => updateField('mcTargetSurvival', Number(e.target.value))}
+              value={getDisplayValue('mcTargetSurvival')}
+              onChange={(e) => updateField('mcTargetSurvival', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-600">Retirement End Age</label>
+            <FieldLabel field="mcRetirementEndAge" text="Retirement End Age" />
             <input
-              type="number"
-              value={mcRetirementEndAge}
-              onChange={(e) => updateField('mcRetirementEndAge', Number(e.target.value))}
+              type={getInputType('mcRetirementEndAge')}
+                inputMode="decimal"
+              value={getDisplayValue('mcRetirementEndAge')}
+              onChange={(e) => updateField('mcRetirementEndAge', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
             />
           </div>

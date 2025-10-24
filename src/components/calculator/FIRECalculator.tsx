@@ -30,6 +30,7 @@ export default function FIRECalculator() {
     updateField,
     calculatorInputs,
     mcSettings,
+    validationIssues,
     derivedWithdrawalRate,
   } = useCalculatorConfig();
 
@@ -222,6 +223,7 @@ export default function FIRECalculator() {
         updateField={updateField}
         currentYear={currentYear}
         derivedWithdrawalRate={derivedWithdrawalRate}
+        validationIssues={validationIssues}
         mcRunning={mcRunning}
         onRunMonteCarlo={handleRunMonteCarlo}
       />

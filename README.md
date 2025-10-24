@@ -632,6 +632,11 @@ fireTarget = (fireExpenseTarget × inflationFactor × targetPortfolioMultiple)
 ```
 Add your component to this calculation.
 
+**Precision & validation notes:**
+- Inputs are clamped and validated centrally in `domain/schemas.ts`. Any out-of-range values render descriptive errors above the configuration form.
+- Monetary calculations inside `projection.ts` and `monteCarlo.ts` now use high-precision decimal helpers (`domain/money.ts`) to avoid penny-level drift caused by floating point arithmetic.
+- Regression tests in `tests/domain/engine.invariants.test.ts` fuzz random plans and ensure portfolios remain finite/non-negative, while deterministic Monte Carlo runs are snapshot-tested for stability.
+
 **To add asset tracking (e.g., home equity):**
 1. Add state for initial value and appreciation rate
 2. Calculate value each year with appreciation

@@ -224,6 +224,21 @@ The `useCalculatorConfig` hook centralizes shared inputs (savings, income, targe
 ### Domain Module Responsibilities
 - `projection.ts`: deterministic cash-flow model that feeds both panels.
 - `monteCarlo.ts`: exports `runAccumulationMonteCarlo` and `runWithdrawalMonteCarlo` so the phases can simulate independently.
+
+### Validation & Precision
+- `domain/schemas.ts` enforces numeric bounds and cross-field rules, returning user-friendly issues that surface above the form.
+- Monetary calculations now use high-precision helpers in `domain/money.ts` (Decimal.js) to avoid float drift when compounding or applying returns.
+- `tests/domain/engine.invariants.test.ts` fuzzes random plan inputs and locks down deterministic Monte Carlo behaviour (with a mocked RNG) to guard against regressions.
+
+## Future Enhancements Backlog
+- **Advanced return modeling**: introduce Student-t or block-bootstrap Monte Carlo, plus stochastic inflation correlated with assets.
+- **Withdrawal guardrails**: support floor/ceiling or Guyton–Klinger style rules alongside fixed multiples.
+- **Expanded tax coverage**: add non-CA state modules, capital-gains harvesting, Roth conversions, and RMD handling.
+- **Scenario management**: allow saving/comparing multiple plans side by side with diff views.
+- **Data export**: provide CSV/JSON downloads of yearly (or monthly) projections and assumption summaries.
+- **Methodology documentation**: generate a versioned “assumptions & math” appendix directly from engine comments.
+- **Accessibility & UX**: richer tooltips, inline explanations for critical inputs, and confidence-band charts for both phases.
+- **Privacy posture**: document where data lives (client-only vs. server) and outline deletion/consent policies if server storage arrives.
 - Calculation dependencies are explicit via `useMemo` dependency array
 
 ### Performance: useMemo Dependency Array

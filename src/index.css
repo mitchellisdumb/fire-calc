@@ -155,7 +155,8 @@ details[open] summary {
   font-size: 0.875rem;
   border-radius: 6px;
   white-space: normal;
-  max-width: 600px;
+  min-width: 18rem;
+  max-width: 40rem;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease-in-out;
