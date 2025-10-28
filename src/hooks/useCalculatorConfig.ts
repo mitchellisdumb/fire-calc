@@ -72,6 +72,8 @@ const initialFormState: CalculatorForm = {
   mcTargetSurvival: 90,
   mcRetirementEndAge: 90,
   mcUseHistoricalReturns: false,
+  mcStockAllocation: 50,
+  mcBondReturn: 4,
   withdrawalRate: 4,
 }
 
@@ -196,6 +198,8 @@ export function useCalculatorConfig() {
       targetSurvival: state.mcTargetSurvival,
       retirementEndAge: state.mcRetirementEndAge,
       useHistoricalReturns: state.mcUseHistoricalReturns,
+      stockAllocation: state.mcStockAllocation,
+      bondReturn: state.mcBondReturn,
     }),
     [
       state.mcEnabled,
@@ -204,6 +208,8 @@ export function useCalculatorConfig() {
       state.mcTargetSurvival,
       state.mcRetirementEndAge,
       state.mcUseHistoricalReturns,
+      state.mcStockAllocation,
+      state.mcBondReturn,
     ],
   )
 

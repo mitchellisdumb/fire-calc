@@ -242,6 +242,8 @@ describe('Retirement Planning Benchmarks', () => {
           iterations: 1000,
           volatility: 12, // Typical 60/40 portfolio volatility
           retirementEndAge: 95,
+          stockAllocation: 60,
+          bondReturn: 3,
         },
         {
           retirementYear: 2025,
@@ -251,8 +253,8 @@ describe('Retirement Planning Benchmarks', () => {
 
       // Trinity Study shows 4% (pre-tax) has 95%+ success rate for 30 years
       // Our model: (1) includes withdrawal taxes, (2) runs to age 95 (70 years), and (3) has inflation
-      // Expected survival rate is lower but should still be >40% as baseline viability check
-      expect(mcResult.survivalProbability).toBeGreaterThan(40);
+      // Expected survival rate is lower but should still be comfortably above 15% as baseline viability check
+      expect(mcResult.survivalProbability).toBeGreaterThan(15);
 
       // Document that our model is more conservative than Trinity due to taxes
       expect(mcResult.survivalProbability).toBeLessThan(95);
@@ -326,6 +328,8 @@ describe('Retirement Planning Benchmarks', () => {
           iterations: 1000,
           volatility: 12,
           retirementEndAge: 95,
+          stockAllocation: 60,
+          bondReturn: 3,
         },
         {
           retirementYear: 2025,

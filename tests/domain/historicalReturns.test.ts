@@ -81,26 +81,26 @@ describe('historicalReturns', () => {
 
   describe('generateHistoricalSequence', () => {
     it('returns array of correct length', () => {
-      const sequence = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 30);
-      expect(sequence).toHaveLength(30);
+      const { values } = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 30);
+      expect(values).toHaveLength(30);
     });
 
     it('returns decimal returns (not percentages)', () => {
-      const sequence = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 10);
+      const { values } = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 10);
 
-      sequence.forEach((returnValue) => {
+      values.forEach((returnValue) => {
         // Returns should be in decimal form (e.g., 0.10 for 10%, not 10)
         expect(Math.abs(returnValue)).toBeLessThan(1); // Most returns are < 100%
       });
     });
 
     it('samples from actual historical data', () => {
-      const sequence = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 100);
+      const { values } = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 100);
 
       // Every value should match one of the historical nominal returns (in decimal form)
       const historicalValues = SP500_HISTORICAL_RETURNS.map((r) => r.nominalReturn / 100);
 
-      sequence.forEach((returnValue) => {
+      values.forEach((returnValue) => {
         const found = historicalValues.some(
           (historical) => Math.abs(returnValue - historical) < 0.0001
         );
@@ -109,8 +109,8 @@ describe('historicalReturns', () => {
     });
 
     it('produces different sequences without seed', () => {
-      const seq1 = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 30);
-      const seq2 = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 30);
+      const seq1 = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 30).values;
+      const seq2 = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 30).values;
 
       // Should be different (very unlikely to be identical by chance)
       const identical = seq1.every((val, idx) => val === seq2[idx]);
@@ -119,15 +119,15 @@ describe('historicalReturns', () => {
 
     it('produces identical sequences with same seed', () => {
       const seed = 12345;
-      const seq1 = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 30, seed);
-      const seq2 = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 30, seed);
+      const seq1 = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 30, seed).values;
+      const seq2 = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 30, seed).values;
 
       expect(seq1).toEqual(seq2);
     });
 
     it('produces different sequences with different seeds', () => {
-      const seq1 = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 30, 111);
-      const seq2 = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 30, 222);
+      const seq1 = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 30, 111).values;
+      const seq2 = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 30, 222).values;
 
       const identical = seq1.every((val, idx) => val === seq2[idx]);
       expect(identical).toBe(false);
@@ -140,43 +140,47 @@ describe('historicalReturns', () => {
         const idx = (seed + i) % SP500_HISTORICAL_RETURNS.length;
         return SP500_HISTORICAL_RETURNS[idx].nominalReturn / 100;
       });
-      const sequence = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, length, seed);
+      const sequence = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, length, seed).values;
 
       expect(sequence).not.toEqual(rotation);
     });
 
     it('handles short sequences (1 year)', () => {
-      const sequence = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 1);
-      expect(sequence).toHaveLength(1);
-      expect(typeof sequence[0]).toBe('number');
-      expect(Number.isFinite(sequence[0])).toBe(true);
+      const { values, firstYear } = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 1);
+      expect(values).toHaveLength(1);
+      expect(typeof values[0]).toBe('number');
+      expect(Number.isFinite(values[0])).toBe(true);
+      expect(firstYear).toBeGreaterThanOrEqual(1928);
+      expect(firstYear).toBeLessThanOrEqual(2024);
     });
 
     it('handles long sequences (100+ years)', () => {
-      const sequence = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 150);
-      expect(sequence).toHaveLength(150);
+      const { values } = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 150);
+      expect(values).toHaveLength(150);
 
-      sequence.forEach((returnValue) => {
+      values.forEach((returnValue) => {
         expect(Number.isFinite(returnValue)).toBe(true);
       });
     });
 
     it('bootstrap sampling allows repetition', () => {
       // With 97 historical values and 97 samples, we should see some repetition
-      const sequence = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 97);
-      const uniqueValues = new Set(sequence);
+      const { values } = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 97);
+      const uniqueValues = new Set(values);
 
       // Should have fewer unique values than total (with high probability)
-      expect(uniqueValues.size).toBeLessThan(sequence.length);
+      expect(uniqueValues.size).toBeLessThan(values.length);
     });
 
     it('returns all finite numbers', () => {
-      const sequence = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 50);
+      const { values, firstYear } = generateHistoricalSequence(SP500_HISTORICAL_RETURNS, 50);
 
-      sequence.forEach((returnValue) => {
+      values.forEach((returnValue) => {
         expect(Number.isFinite(returnValue)).toBe(true);
         expect(Number.isNaN(returnValue)).toBe(false);
       });
+      expect(firstYear).toBeGreaterThanOrEqual(1928);
+      expect(firstYear).toBeLessThanOrEqual(2024);
     });
   });
 

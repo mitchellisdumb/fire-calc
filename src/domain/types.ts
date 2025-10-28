@@ -116,6 +116,9 @@ export interface MonteCarloSettings {
   targetSurvival: number;
   retirementEndAge: number;
   useHistoricalReturns?: boolean; // If true, use historical S&P 500 returns instead of parametric
+  stockAllocation?: number;
+  bondReturn?: number;
+  historicalSeed?: number;
 }
 
 // Captures a single Monte Carlo timeline point (year, balance, basic flags).
@@ -168,6 +171,7 @@ export interface AccumulationMonteCarloResult {
   samples: AccumulationMonteCarloSample[];
   readinessByYear: ReadinessProbabilityPoint[];
   percentiles: ReadinessPercentile[];
+  historical?: HistoricalMonteCarloMetadata | null;
 }
 
 export interface RetirementScenario {
@@ -184,9 +188,16 @@ export interface WithdrawalMonteCarloResult {
   medianDepletionYear: number | null;
   yearlyPercentiles: Record<number, YearlyPercentiles>;
   allSimulations: SimulationResult[];
+  historical?: HistoricalMonteCarloMetadata | null;
 }
 
 export interface WithdrawalSimulationOptions {
   retirementYear: number;
   startingPortfolio: number;
+}
+
+export interface HistoricalMonteCarloMetadata {
+  stockAllocation: number;
+  bondReturn: number;
+  sequenceStartYears: Array<number | null>;
 }

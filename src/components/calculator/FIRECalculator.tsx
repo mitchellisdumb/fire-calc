@@ -147,10 +147,20 @@ export default function FIRECalculator() {
     setMcRunning(true);
 
     setTimeout(() => {
+      const { enabled: _enabled, ...settingsWithoutFlag } = mcSettings;
+      const historicalSeed =
+        settingsWithoutFlag.useHistoricalReturns
+          ? Math.floor(Math.random() * 0xffffffff)
+          : undefined;
+      const settingsWithSeed = {
+        ...settingsWithoutFlag,
+        historicalSeed,
+      };
+
       const accumulation = runAccumulationMonteCarlo(
         calculatorInputs,
         projections,
-        mcSettings,
+        settingsWithSeed,
       );
 
       setAccumulationResult(accumulation);
@@ -167,7 +177,7 @@ export default function FIRECalculator() {
       const withdrawal = runWithdrawalMonteCarlo(
         calculatorInputs,
         projections,
-        mcSettings,
+        settingsWithSeed,
         {
           retirementYear: scenario.year,
           startingPortfolio: scenario.startingPortfolio,

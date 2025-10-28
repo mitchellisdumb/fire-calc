@@ -28,6 +28,7 @@ export function generateLognormalReturn(arithmeticMean: number, volatility: numb
 // State for historical simulation mode
 let historicalSequenceCache: number[] | null = null;
 let historicalSequenceIndex = 0;
+let historicalSequenceFirstYear: number | null = null;
 
 /**
  * Initialize historical simulation mode
@@ -35,11 +36,13 @@ let historicalSequenceIndex = 0;
  * @param seed Optional seed for reproducible simulations
  */
 export function initializeHistoricalSequence(sequenceLength: number, seed?: number): void {
-  historicalSequenceCache = generateHistoricalSequence(
+  const { values, firstYear } = generateHistoricalSequence(
     SP500_HISTORICAL_RETURNS,
     sequenceLength,
     seed
   );
+  historicalSequenceCache = values;
+  historicalSequenceFirstYear = firstYear ?? null;
   historicalSequenceIndex = 0;
 }
 
@@ -51,6 +54,7 @@ export function getNextHistoricalReturn(): number {
   if (!historicalSequenceCache || historicalSequenceIndex >= historicalSequenceCache.length) {
     // Fallback: return a random historical year
     const randomIndex = Math.floor(Math.random() * SP500_HISTORICAL_RETURNS.length);
+    historicalSequenceFirstYear ??= SP500_HISTORICAL_RETURNS[randomIndex].year;
     return SP500_HISTORICAL_RETURNS[randomIndex].nominalReturn / 100;
   }
 
@@ -59,12 +63,17 @@ export function getNextHistoricalReturn(): number {
   return returnValue;
 }
 
+export function getHistoricalSequenceFirstYear(): number | null {
+  return historicalSequenceFirstYear;
+}
+
 /**
  * Reset historical simulation state
  */
 export function resetHistoricalSequence(): void {
   historicalSequenceCache = null;
   historicalSequenceIndex = 0;
+  historicalSequenceFirstYear = null;
 }
 
 // Compute an interpolated percentile from a sorted array. We use linear

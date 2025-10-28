@@ -10,6 +10,8 @@ export interface CalculatorForm extends CalculatorInputs {
   mcTargetSurvival: number
   mcRetirementEndAge: number
   mcUseHistoricalReturns: boolean
+  mcStockAllocation: number
+  mcBondReturn: number
 }
 
 // Generic validation result used by both synchronous checks and form-to-input
@@ -80,6 +82,8 @@ export const validateCalculatorForm = (form: CalculatorForm): ValidationResult<C
     ['mcIterations', 1, 100_000],
     ['mcVolatility', 0, 100],
     ['mcTargetSurvival', 0, 100],
+    ['mcStockAllocation', 0, 100],
+    ['mcBondReturn', -20, 20],
   ]
 
   numericBounds.forEach(([key, min, max]) => {
@@ -129,6 +133,7 @@ export const validateCalculatorForm = (form: CalculatorForm): ValidationResult<C
     ...form,
     initialTaxablePct: clamp(form.initialTaxablePct, 0, 100),
     targetPortfolioMultiple: Math.max(1, form.targetPortfolioMultiple),
+    mcStockAllocation: clamp(form.mcStockAllocation, 0, 100),
   }
 
   if (issues.length > 0) {

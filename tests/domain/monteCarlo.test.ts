@@ -37,15 +37,26 @@ describe('runAccumulationMonteCarlo', () => {
     });
 
     try {
-      expect(() =>
-        runAccumulationMonteCarlo(inputs, projections, {
-          iterations: 10,
-          volatility: 15,
-          targetSurvival: 90,
-          retirementEndAge: 90,
-          useHistoricalReturns: true,
-        }),
-      ).not.toThrow();
+      const result = runAccumulationMonteCarlo(inputs, projections, {
+        iterations: 10,
+        volatility: 15,
+        targetSurvival: 90,
+        retirementEndAge: 90,
+        useHistoricalReturns: true,
+        historicalSeed: 123,
+        stockAllocation: 50,
+        bondReturn: 4,
+      });
+      expect(result.historical).toBeTruthy();
+      expect(result.historical?.sequenceStartYears).toHaveLength(10);
+      result.historical?.sequenceStartYears.forEach((year) => {
+        if (year !== null) {
+          expect(year).toBeGreaterThanOrEqual(1928);
+          expect(year).toBeLessThanOrEqual(2024);
+        }
+      });
+      expect(result.historical?.stockAllocation).toBeCloseTo(50, 5);
+      expect(result.historical?.bondReturn).toBe(4);
       expect(randomSpy).not.toHaveBeenCalled();
     } finally {
       randomSpy.mockRestore();
@@ -89,23 +100,57 @@ describe('runWithdrawalMonteCarlo', () => {
     });
 
     try {
-      expect(() =>
-        runWithdrawalMonteCarlo(
-          inputs,
-          projections,
-          {
-            iterations: 10,
-            volatility: 15,
-            targetSurvival: 90,
-            retirementEndAge: 90,
-            useHistoricalReturns: true,
-          },
-          options,
-        ),
-      ).not.toThrow();
+      const result = runWithdrawalMonteCarlo(
+        inputs,
+        projections,
+        {
+          iterations: 10,
+          volatility: 15,
+          targetSurvival: 90,
+          retirementEndAge: 90,
+          useHistoricalReturns: true,
+          historicalSeed: 456,
+          stockAllocation: 50,
+          bondReturn: 4,
+        },
+        options,
+      );
+      expect(result.historical).toBeTruthy();
+      expect(result.historical?.sequenceStartYears).toHaveLength(10);
+      expect(result.historical?.stockAllocation).toBeCloseTo(50, 5);
+      expect(result.historical?.bondReturn).toBe(4);
       expect(randomSpy).not.toHaveBeenCalled();
     } finally {
       randomSpy.mockRestore();
     }
+  });
+
+  it('applies custom historical allocation metadata', () => {
+    const inputs = createDefaultInputs();
+    const projections = buildProjections(inputs);
+    const options: WithdrawalSimulationOptions = {
+      retirementYear: 2045,
+      startingPortfolio: projections.years.find((y) => y.year === 2045)?.portfolio ?? 2000000,
+    };
+
+    const result = runWithdrawalMonteCarlo(
+      inputs,
+      projections,
+      {
+        iterations: 5,
+        volatility: 15,
+        targetSurvival: 90,
+        retirementEndAge: 90,
+        useHistoricalReturns: true,
+        stockAllocation: 65,
+        bondReturn: 2.5,
+        historicalSeed: 789,
+      },
+      options,
+    );
+
+    expect(result.historical).toBeTruthy();
+    expect(result.historical?.stockAllocation).toBeCloseTo(65, 5);
+    expect(result.historical?.bondReturn).toBeCloseTo(2.5, 5);
   });
 });

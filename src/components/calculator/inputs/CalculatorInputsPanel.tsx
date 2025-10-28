@@ -51,7 +51,11 @@ const currencyFieldSet = new Set(currencyFields);
 // Tooltips map form fields to audit-friendly explanations so reviewers understand
 // why each slider/input matters. We include the Monte Carlo toggles and special
 // checkboxes as "virtual" keys.
-type TooltipKey = keyof CalculatorFormState | 'includeHealthcareBuffer' | 'mcEnabled' | 'mcUseHistoricalReturns';
+type TooltipKey =
+  | keyof CalculatorFormState
+  | 'includeHealthcareBuffer'
+  | 'mcEnabled'
+  | 'mcUseHistoricalReturns';
 
 const fieldTooltips: Partial<Record<TooltipKey, string>> = {
   initialSavings: "Starting combined balance across taxable and tax-deferred accounts in base-year dollars.",
@@ -109,6 +113,8 @@ const fieldTooltips: Partial<Record<TooltipKey, string>> = {
   mcTargetSurvival: "Required percentage of successful Monte Carlo runs that finish above zero.",
   mcRetirementEndAge: "Final age evaluated in Monte Carlo survival calculations.",
   mcUseHistoricalReturns: "Use actual historical S&P 500 returns (1928-2024) instead of parametric lognormal distribution; samples random sequences from historical data with replacement.",
+  mcStockAllocation: "Target equity share applied to Monte Carlo return draws (both historical and parametric modes). Remaining weight is treated as bonds.",
+  mcBondReturn: "Nominal annual return assumption applied to the bond sleeve when blending returns.",
 };
 
 const TooltipIcon = ({ field }: { field: TooltipKey }) => {
@@ -134,12 +140,14 @@ const FieldLabel = ({
   field,
   text,
   className = 'block text-sm text-gray-600',
+  htmlFor,
 }: {
   field: TooltipKey;
   text: string;
   className?: string;
+  htmlFor?: string;
 }) => (
-  <label className={className}>
+  <label className={className} htmlFor={htmlFor}>
     <span className="inline-flex items-center gap-1">
       {text}
       <TooltipIcon field={field} />
@@ -941,6 +949,42 @@ export default function CalculatorInputsPanel({
               value={getDisplayValue('mcRetirementEndAge')}
               onChange={(e) => updateField('mcRetirementEndAge', parseNumericInput(e.target.value))}
               className="w-full px-3 py-1 border rounded"
+            />
+          </div>
+          <div>
+            <FieldLabel
+              field="mcStockAllocation"
+              text="Equity Allocation (%)"
+              htmlFor="mc-equity-allocation"
+            />
+            <input
+              id="mc-equity-allocation"
+              type={getInputType('mcStockAllocation')}
+                inputMode="decimal"
+              min={0}
+              max={100}
+              step="1"
+              value={getDisplayValue('mcStockAllocation')}
+              onChange={(e) => updateField('mcStockAllocation', parseNumericInput(e.target.value))}
+              className="w-full px-3 py-1 border rounded"
+              disabled={!mcEnabled}
+            />
+          </div>
+          <div>
+            <FieldLabel
+              field="mcBondReturn"
+              text="Bond Return Assumption (%)"
+              htmlFor="mc-bond-return"
+            />
+            <input
+              id="mc-bond-return"
+              type={getInputType('mcBondReturn')}
+                inputMode="decimal"
+              step="0.1"
+              value={getDisplayValue('mcBondReturn')}
+              onChange={(e) => updateField('mcBondReturn', parseNumericInput(e.target.value))}
+              className="w-full px-3 py-1 border rounded"
+              disabled={!mcEnabled}
             />
           </div>
           <div className="md:col-span-2 flex items-center justify-between bg-blue-50 border border-blue-100 px-4 py-3 rounded">

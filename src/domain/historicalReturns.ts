@@ -17,6 +17,14 @@ export interface HistoricalReturn {
 function createSeededRandom(seed: number): () => number {
   // Ensure non-zero seed to avoid degenerate LCG output
   let state = (seed >>> 0) || 1;
+  // Mix the seed using xorshift-style scrambler so adjacent seeds diverge quickly
+  state ^= state << 13;
+  state ^= state >>> 17;
+  state ^= state << 5;
+  state >>>= 0;
+  if (state === 0) {
+    state = 1;
+  }
 
   return () => {
     state = (state * 1664525 + 1013904223) >>> 0;
@@ -175,21 +183,30 @@ export function calculateHistoricalStatistics(returns: HistoricalReturn[]): {
  * @param length Number of years to sample
  * @param seed Optional seed for reproducibility (uses year as index mod)
  */
+export interface HistoricalSequenceResult {
+  values: number[];
+  firstYear: number | null;
+}
+
 export function generateHistoricalSequence(
   returns: HistoricalReturn[],
   length: number,
   seed?: number
-): number[] {
+): HistoricalSequenceResult {
   const sequence: number[] = [];
   const random = seed !== undefined ? createSeededRandom(seed) : Math.random;
+  let firstYear: number | null = null;
 
   for (let i = 0; i < length; i++) {
     const index = Math.floor(random() * returns.length);
 
     sequence.push(returns[index].nominalReturn / 100); // Convert percentage to decimal
+    if (firstYear === null) {
+      firstYear = returns[index].year;
+    }
   }
 
-  return sequence;
+  return { values: sequence, firstYear };
 }
 
 /**

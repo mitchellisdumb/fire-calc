@@ -16,6 +16,17 @@ import {
   ComposedChart,
 } from 'recharts';
 
+const DEFAULT_CHART_MARGIN = { left: 80, right: 20, top: 10, bottom: 20 };
+const WIDE_RIGHT_CHART_MARGIN = { ...DEFAULT_CHART_MARGIN, right: 60 };
+const buildYAxisLabel = (value: string) => ({
+  value,
+  angle: -90,
+  position: 'left' as const,
+  offset: 0,
+  dx: -10,
+  style: { textAnchor: 'middle' as const },
+});
+
 interface ManualScenario {
   retirementYear: number;
   startingPortfolio: number;
@@ -54,6 +65,17 @@ export default function PostRetirementPanel({
 }: PostRetirementPanelProps) {
   const scenarioToShow = linkedMode ? linkedScenario : null;
   const manual = manualScenario;
+
+  const historicalMeta = withdrawalResult?.historical ?? null;
+  const historicalStartYears = historicalMeta?.sequenceStartYears.filter(
+    (year): year is number => typeof year === 'number' && Number.isFinite(year),
+  ) ?? [];
+  const historicalFirstYear = historicalStartYears.length > 0 ? historicalStartYears[0] : null;
+  const historicalMinYear = historicalStartYears.length > 0 ? Math.min(...historicalStartYears) : null;
+  const historicalMaxYear = historicalStartYears.length > 0 ? Math.max(...historicalStartYears) : null;
+  const historicalBondAllocation = historicalMeta
+    ? Math.max(0, Math.round((100 - historicalMeta.stockAllocation) * 10) / 10)
+    : null;
 
   // Calculate actual portfolio drawdown rate for the retirement year
   const retirementYear = linkedMode ? (linkedScenario?.year ?? manual.retirementYear) : manual.retirementYear;
@@ -101,6 +123,7 @@ export default function PostRetirementPanel({
 
       return {
         year: year.year,
+        age: year.year - 1987,
         expenses: year.totalExpenses,
         rentalIncome: year.rentalNetCashFlow,
         ssIncome: year.socialSecurityIncome,
@@ -125,6 +148,7 @@ export default function PostRetirementPanel({
   };
 
   const formatPercent = (value: number) => `${value.toFixed(0)}%`;
+  const formatAgeTick = (value: number) => `Age ${value}`;
 
   return (
     <div className="space-y-6">
@@ -208,6 +232,35 @@ export default function PostRetirementPanel({
         </section>
       ) : (
         <>
+          {historicalMeta && (
+            <section className="bg-blue-50 border border-blue-200 rounded-lg shadow-sm p-4 text-sm text-blue-800">
+              <p>
+                Historical sampling first draw:
+                {' '}
+                <span className="font-semibold">
+                  {historicalFirstYear !== null ? historicalFirstYear : 'N/A'}
+                </span>
+                {historicalMinYear !== null && historicalMaxYear !== null && historicalMinYear !== historicalMaxYear && (
+                  <>
+                    {' '} (range {historicalMinYear}–{historicalMaxYear})
+                  </>
+                )}
+                .
+              </p>
+              <p className="mt-1">
+                Allocation:
+                {' '}
+                <span className="font-semibold">{historicalMeta.stockAllocation.toFixed(1)}% equities</span>
+                {historicalBondAllocation !== null && (
+                  <>
+                    {' '} / <span className="font-semibold">{historicalBondAllocation.toFixed(1)}% bonds</span>
+                  </>
+                )}
+                , bond sleeve return assumption{' '}
+                <span className="font-semibold">{historicalMeta.bondReturn.toFixed(1)}%</span>.
+              </p>
+            </section>
+          )}
           <section className={`border rounded-lg p-5 shadow-sm ${survivalGood ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
             <h3 className="text-md font-semibold text-gray-800">Survival Overview</h3>
             <p className="text-sm text-gray-700 mt-2">
@@ -240,14 +293,18 @@ export default function PostRetirementPanel({
           <section className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
             <h3 className="text-md font-semibold text-gray-800 mb-3">Portfolio Balance Over Time</h3>
             <ResponsiveContainer width="100%" height={350}>
-              <AreaChart data={retirementChartData} margin={{ left: 80, right: 20, top: 10, bottom: 20 }}>
+              <AreaChart data={retirementChartData} margin={DEFAULT_CHART_MARGIN}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="year" label={{ value: 'Year', position: 'insideBottom', offset: -5 }} />
+                <XAxis
+                  dataKey="age"
+                  label={{ value: 'Age', position: 'insideBottom', offset: -5 }}
+                  tickFormatter={formatAgeTick}
+                />
                 <YAxis
                   tickFormatter={formatCurrency}
-                  label={{ value: 'Portfolio (Nominal $)', angle: -90, position: 'insideLeft' }}
+                  label={buildYAxisLabel('Portfolio (Nominal $)')}
                 />
-                <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                <Tooltip formatter={(value: number) => formatCurrency(value)} labelFormatter={formatAgeTick} />
                 <Legend />
                 <Area
                   type="monotone"
@@ -297,14 +354,18 @@ export default function PostRetirementPanel({
           <section className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
             <h3 className="text-md font-semibold text-gray-800 mb-3">Income Sources in Retirement</h3>
             <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={retirementChartData} margin={{ left: 80, right: 20, top: 10, bottom: 20 }}>
+              <AreaChart data={retirementChartData} margin={DEFAULT_CHART_MARGIN}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="year" label={{ value: 'Year', position: 'insideBottom', offset: -5 }} />
+                <XAxis
+                  dataKey="age"
+                  label={{ value: 'Age', position: 'insideBottom', offset: -5 }}
+                  tickFormatter={formatAgeTick}
+                />
                 <YAxis
                   tickFormatter={formatCurrency}
-                  label={{ value: 'Income (Nominal $)', angle: -90, position: 'insideLeft' }}
+                  label={buildYAxisLabel('Income (Nominal $)')}
                 />
-                <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                <Tooltip formatter={(value: number) => formatCurrency(value)} labelFormatter={formatAgeTick} />
                 <Legend />
                 <Area
                   type="monotone"
@@ -338,13 +399,17 @@ export default function PostRetirementPanel({
           <section className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
             <h3 className="text-md font-semibold text-gray-800 mb-3">Expense Coverage by Passive Income</h3>
             <ResponsiveContainer width="100%" height={300}>
-              <ComposedChart data={retirementChartData} margin={{ left: 80, right: 60, top: 10, bottom: 20 }}>
+              <ComposedChart data={retirementChartData} margin={WIDE_RIGHT_CHART_MARGIN}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="year" label={{ value: 'Year', position: 'insideBottom', offset: -5 }} />
+                <XAxis
+                  dataKey="age"
+                  label={{ value: 'Age', position: 'insideBottom', offset: -5 }}
+                  tickFormatter={formatAgeTick}
+                />
                 <YAxis
                   yAxisId="left"
                   tickFormatter={formatCurrency}
-                  label={{ value: 'Amount (Nominal $)', angle: -90, position: 'insideLeft' }}
+                  label={buildYAxisLabel('Amount (Nominal $)')}
                 />
                 <YAxis
                   yAxisId="right"
@@ -354,6 +419,7 @@ export default function PostRetirementPanel({
                   label={{ value: 'Coverage %', angle: 90, position: 'insideRight' }}
                 />
                 <Tooltip
+                  labelFormatter={formatAgeTick}
                   formatter={(value: number, name: string) =>
                     name.includes('%') ? formatPercent(value) : formatCurrency(value)
                   }
@@ -378,14 +444,18 @@ export default function PostRetirementPanel({
           <section className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
             <h3 className="text-md font-semibold text-gray-800 mb-3">Annual Portfolio Withdrawal</h3>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={retirementChartData} margin={{ left: 80, right: 20, top: 10, bottom: 20 }}>
+              <BarChart data={retirementChartData} margin={DEFAULT_CHART_MARGIN}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="year" label={{ value: 'Year', position: 'insideBottom', offset: -5 }} />
+                <XAxis
+                  dataKey="age"
+                  label={{ value: 'Age', position: 'insideBottom', offset: -5 }}
+                  tickFormatter={formatAgeTick}
+                />
                 <YAxis
                   tickFormatter={formatCurrency}
-                  label={{ value: 'Withdrawal (Nominal $)', angle: -90, position: 'insideLeft' }}
+                  label={buildYAxisLabel('Withdrawal (Nominal $)')}
                 />
-                <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                <Tooltip formatter={(value: number) => formatCurrency(value)} labelFormatter={formatAgeTick} />
                 <Legend />
                 <Bar dataKey="portfolioWithdrawal" fill="#10b981" name="Net Withdrawal from Portfolio" />
               </BarChart>

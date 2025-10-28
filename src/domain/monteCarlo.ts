@@ -3,6 +3,7 @@ import {
   generateLognormalReturn,
   initializeHistoricalSequence,
   getNextHistoricalReturn,
+  getHistoricalSequenceFirstYear,
   resetHistoricalSequence,
 } from './statistics'
 import {
@@ -61,14 +62,41 @@ export function runAccumulationMonteCarlo(
     taxableReturnRate,
   } = inputs;
 
-  const { iterations, volatility, useHistoricalReturns = false } = settings;
+  const {
+    iterations,
+    volatility,
+    useHistoricalReturns = false,
+    stockAllocation = 50,
+    bondReturn = 4,
+    historicalSeed,
+  } = settings;
 
   const samples: AccumulationMonteCarloSample[] = [];
+  const historicalStartYears: Array<number | null> = [];
+  const stockWeight = Math.min(Math.max(stockAllocation / 100, 0), 1);
+  const bondReturnDecimal = bondReturn / 100;
+  const historicalSeedBase =
+    useHistoricalReturns && historicalSeed === undefined
+      ? Math.floor(Math.random() * 0xffffffff)
+      : historicalSeed ?? 0;
+
+  const getHistoricalBlendedReturn = () => {
+    const equityReturn = getNextHistoricalReturn();
+    return stockWeight * equityReturn + (1 - stockWeight) * bondReturnDecimal;
+  };
+  const getParametricBlendedReturn = (meanReturn: number) => {
+    const equityReturn = generateLognormalReturn(meanReturn, volatility);
+    return stockWeight * equityReturn + (1 - stockWeight) * bondReturnDecimal;
+  };
 
   for (let sim = 0; sim < iterations; sim++) {
     // Initialize historical sequence for this simulation if needed
     if (useHistoricalReturns) {
-      initializeHistoricalSequence(projections.years.length * HISTORICAL_DRAWS_PER_YEAR, sim);
+      initializeHistoricalSequence(
+        projections.years.length * HISTORICAL_DRAWS_PER_YEAR,
+        (historicalSeedBase + sim) >>> 0,
+      );
+      historicalStartYears.push(getHistoricalSequenceFirstYear());
     }
 
     // Start each simulation from the same initial state the deterministic
@@ -86,11 +114,11 @@ export function runAccumulationMonteCarlo(
 
       // Generate returns based on mode
       const taxAdvReturn = useHistoricalReturns
-        ? getNextHistoricalReturn()
-        : generateLognormalReturn(taxAdvReturnRate, volatility);
+        ? getHistoricalBlendedReturn()
+        : getParametricBlendedReturn(taxAdvReturnRate);
       const taxReturn = useHistoricalReturns
-        ? getNextHistoricalReturn()
-        : generateLognormalReturn(taxableReturnRate, volatility);
+        ? getHistoricalBlendedReturn()
+        : getParametricBlendedReturn(taxableReturnRate);
 
       const taxAdvContribution = dec(baseYear.taxAdvContribution);
       const taxableContribution = dec(baseYear.taxableContribution);
@@ -201,6 +229,13 @@ export function runAccumulationMonteCarlo(
     samples,
     readinessByYear,
     percentiles,
+    historical: useHistoricalReturns
+      ? {
+          stockAllocation: Math.round(stockWeight * 1000) / 10,
+          bondReturn,
+          sequenceStartYears: historicalStartYears,
+        }
+      : null,
   };
 }
 
@@ -219,7 +254,15 @@ export function runWithdrawalMonteCarlo(
     initialTaxablePct,
   } = inputs;
 
-  const { iterations, volatility, retirementEndAge, useHistoricalReturns = false } = settings;
+  const {
+    iterations,
+    volatility,
+    retirementEndAge,
+    useHistoricalReturns = false,
+    stockAllocation = 50,
+    bondReturn = 4,
+    historicalSeed,
+  } = settings;
 
   const retirementIndex = projections.years.findIndex(
     (year) => year.year === options.retirementYear,
@@ -247,12 +290,32 @@ export function runWithdrawalMonteCarlo(
 
   const simResults: SimulationResult[] = [];
   const yearlyResults: Record<number, number[]> = {};
+  const historicalStartYears: Array<number | null> = [];
+  const stockWeight = Math.min(Math.max(stockAllocation / 100, 0), 1);
+  const bondReturnDecimal = bondReturn / 100;
+  const historicalSeedBase =
+    useHistoricalReturns && historicalSeed === undefined
+      ? Math.floor(Math.random() * 0xffffffff)
+      : historicalSeed ?? 0;
+
+  const getHistoricalBlendedReturn = () => {
+    const equityReturn = getNextHistoricalReturn();
+    return stockWeight * equityReturn + (1 - stockWeight) * bondReturnDecimal;
+  };
+  const getParametricBlendedReturn = (meanReturn: number) => {
+    const equityReturn = generateLognormalReturn(meanReturn, volatility);
+    return stockWeight * equityReturn + (1 - stockWeight) * bondReturnDecimal;
+  };
 
   for (let sim = 0; sim < iterations; sim++) {
     // Initialize historical sequence for this simulation if needed
     if (useHistoricalReturns) {
       const simulationLength = endIndex - retirementIndex;
-      initializeHistoricalSequence(simulationLength * HISTORICAL_DRAWS_PER_YEAR, sim);
+      initializeHistoricalSequence(
+        simulationLength * HISTORICAL_DRAWS_PER_YEAR,
+        (historicalSeedBase + sim) >>> 0,
+      );
+      historicalStartYears.push(getHistoricalSequenceFirstYear());
     }
 
     let taxAdvPortfolio = dec(options.startingPortfolio).mul(taxAdvRatio)
@@ -269,11 +332,11 @@ export function runWithdrawalMonteCarlo(
 
       // Generate returns based on mode
       const taxAdvReturn = useHistoricalReturns
-        ? getNextHistoricalReturn()
-        : generateLognormalReturn(taxAdvReturnRate, volatility);
+        ? getHistoricalBlendedReturn()
+        : getParametricBlendedReturn(taxAdvReturnRate);
       const taxReturn = useHistoricalReturns
-        ? getNextHistoricalReturn()
-        : generateLognormalReturn(taxableReturnRate, volatility);
+        ? getHistoricalBlendedReturn()
+        : getParametricBlendedReturn(taxableReturnRate);
 
       taxAdvPortfolio = taxAdvPortfolio.mul(1 + taxAdvReturn)
       taxablePortfolio = taxablePortfolio.mul(1 + taxReturn)
@@ -386,5 +449,12 @@ export function runWithdrawalMonteCarlo(
     medianDepletionYear,
     yearlyPercentiles,
     allSimulations: simResults,
+    historical: useHistoricalReturns
+      ? {
+          stockAllocation: Math.round(stockWeight * 1000) / 10,
+          bondReturn,
+          sequenceStartYears: historicalStartYears,
+        }
+      : null,
   };
 }

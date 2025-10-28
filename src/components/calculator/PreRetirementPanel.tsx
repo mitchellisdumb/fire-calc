@@ -17,11 +17,22 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  ComposedChart,
 } from 'recharts';
 
 // Percentiles available for scenario selection—kept in sync with the Monte Carlo
 // engine’s outputs.
 const PERCENTILE_OPTIONS = [10, 25, 50, 75, 90];
+const DEFAULT_CHART_MARGIN = { left: 80, right: 20, top: 10, bottom: 20 };
+const WIDE_RIGHT_CHART_MARGIN = { ...DEFAULT_CHART_MARGIN, right: 60 };
+const buildYAxisLabel = (value: string) => ({
+  value,
+  angle: -90,
+  position: 'left' as const,
+  offset: 0,
+  dx: -10,
+  style: { textAnchor: 'middle' as const },
+});
 
 interface PreRetirementPanelProps {
   projections: ProjectionResult;
@@ -64,6 +75,17 @@ export default function PreRetirementPanel({
       })
     : [];
 
+  const historicalMeta = accumulationResult?.historical ?? null;
+  const historicalStartYears = historicalMeta?.sequenceStartYears.filter(
+    (year): year is number => typeof year === 'number' && Number.isFinite(year),
+  ) ?? [];
+  const historicalFirstYear = historicalStartYears.length > 0 ? historicalStartYears[0] : null;
+  const historicalMinYear = historicalStartYears.length > 0 ? Math.min(...historicalStartYears) : null;
+  const historicalMaxYear = historicalStartYears.length > 0 ? Math.max(...historicalStartYears) : null;
+  const historicalBondAllocation = historicalMeta
+    ? Math.max(0, Math.round((100 - historicalMeta.stockAllocation) * 10) / 10)
+    : null;
+
   const hasScenario = Boolean(scenarioForSelection && scenarioForSelection.year !== null);
   const scenarioApplied =
     hasScenario &&
@@ -83,6 +105,7 @@ export default function PreRetirementPanel({
     .filter((_, idx) => idx % 2 === 0)
     .map((year) => ({
       year: year.year,
+      age: year.year - 1987,
       portfolio: year.portfolio,
       taxAdv: year.taxAdvPortfolio,
       taxable: year.taxablePortfolio,
@@ -96,6 +119,8 @@ export default function PreRetirementPanel({
       effectiveRate: parseFloat(year.effectiveRate),
       rentalCashFlow: year.rentalNetCashFlow,
       fireTarget: year.fireTarget,
+      readinessProbability:
+        accumulationResult?.readinessByYear.find((r) => r.year === year.year)?.probability ?? null,
     }));
 
   // 529 data extends to 2047 (when youngest daughter graduates) regardless of retirement
@@ -104,25 +129,12 @@ export default function PreRetirementPanel({
     .filter((_, idx) => idx % 2 === 0)
     .map((year) => ({
       year: year.year,
+      age: year.year - 1987,
       daughter1_529: year.daughter1_529,
       daughter2_529: year.daughter2_529,
     }));
 
   // Monte Carlo data for percentile bands
-  const mcChartData = accumulationResult
-    ? projections.years
-        .filter((_, idx) => idx % 2 === 0)
-        .map((year) => {
-          const readiness = accumulationResult.readinessByYear.find((r) => r.year === year.year);
-          return {
-            year: year.year,
-            portfolio: year.portfolio,
-            fireTarget: year.fireTarget,
-            readinessProbability: readiness?.probability ?? 0,
-          };
-        })
-    : [];
-
   const formatCurrency = (value: number) => {
     if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
     if (value >= 1000) return `$${(value / 1000).toFixed(0)}k`;
@@ -130,6 +142,8 @@ export default function PreRetirementPanel({
   };
 
   const formatPercent = (value: number) => `${value.toFixed(1)}%`;
+  const formatAgeTick = (value: number) => `Age ${value}`;
+  const showReadinessOverlay = mcEnabled && Boolean(accumulationResult);
 
   return (
     <div className="space-y-6">
@@ -177,18 +191,39 @@ export default function PreRetirementPanel({
       <section className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
         <h3 className="text-md font-semibold text-gray-800 mb-3">Portfolio Growth</h3>
         <ResponsiveContainer width="100%" height={300}>
-          <AreaChart data={chartData} margin={{ left: 80, right: 20, top: 10, bottom: 20 }}>
+          <ComposedChart data={chartData} margin={DEFAULT_CHART_MARGIN}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="year" label={{ value: 'Year', position: 'insideBottom', offset: -5 }} />
-            <YAxis
-              tickFormatter={formatCurrency}
-              label={{ value: 'Portfolio (Nominal $)', angle: -90, position: 'insideLeft' }}
+            <XAxis
+              dataKey="age"
+              label={{ value: 'Age', position: 'insideBottom', offset: -5 }}
+              tickFormatter={formatAgeTick}
             />
-            <Tooltip formatter={(value: number) => formatCurrency(value)} />
+            <YAxis
+              yAxisId="left"
+              tickFormatter={formatCurrency}
+              label={buildYAxisLabel('Portfolio (Nominal $)')}
+            />
+            {showReadinessOverlay && (
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                domain={[0, 100]}
+                tickFormatter={(value) => `${value.toFixed(0)}%`}
+                label={{ value: 'Readiness %', angle: 90, position: 'insideRight' }}
+              />
+            )}
+            <Tooltip
+              labelFormatter={formatAgeTick}
+              formatter={(value: number | string | Array<number | string>, name: string) => {
+                if (typeof value !== 'number') return value;
+                return name.includes('%') ? `${value.toFixed(1)}%` : formatCurrency(value);
+              }}
+            />
             <Legend />
             <Area
               type="monotone"
               dataKey="taxAdv"
+              yAxisId="left"
               stackId="1"
               stroke="#10b981"
               fill="#10b981"
@@ -197,6 +232,7 @@ export default function PreRetirementPanel({
             <Area
               type="monotone"
               dataKey="taxable"
+              yAxisId="left"
               stackId="1"
               stroke="#3b82f6"
               fill="#3b82f6"
@@ -205,13 +241,25 @@ export default function PreRetirementPanel({
             <Line
               type="monotone"
               dataKey="fireTarget"
+              yAxisId="left"
               stroke="#ef4444"
               strokeWidth={2}
               strokeDasharray="5 5"
               name="FIRE Target"
               dot={false}
             />
-          </AreaChart>
+            {showReadinessOverlay && (
+              <Line
+                type="monotone"
+                dataKey="readinessProbability"
+                yAxisId="right"
+                stroke="#f59e0b"
+                strokeWidth={2}
+                dot={false}
+                name="Readiness Probability (%)"
+              />
+            )}
+          </ComposedChart>
         </ResponsiveContainer>
       </section>
 
@@ -219,14 +267,21 @@ export default function PreRetirementPanel({
       <section className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
         <h3 className="text-md font-semibold text-gray-800 mb-3">Annual Cash Flow</h3>
         <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={chartData} margin={{ left: 80, right: 20, top: 10, bottom: 20 }}>
+          <BarChart data={chartData} margin={DEFAULT_CHART_MARGIN}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="year" label={{ value: 'Year', position: 'insideBottom', offset: -5 }} />
+            <XAxis
+              dataKey="age"
+              label={{ value: 'Age', position: 'insideBottom', offset: -5 }}
+              tickFormatter={formatAgeTick}
+            />
             <YAxis
               tickFormatter={formatCurrency}
-              label={{ value: 'Amount (Nominal $)', angle: -90, position: 'insideLeft' }}
+              label={buildYAxisLabel('Amount (Nominal $)')}
             />
-            <Tooltip formatter={(value: number) => formatCurrency(value)} />
+            <Tooltip
+              formatter={(value: number) => formatCurrency(value)}
+              labelFormatter={formatAgeTick}
+            />
             <Legend />
             <Bar dataKey="income" fill="#10b981" name="Total Income" />
             <Bar dataKey="expenses" fill="#ef4444" name="Total Expenses" />
@@ -239,14 +294,21 @@ export default function PreRetirementPanel({
       <section className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
         <h3 className="text-md font-semibold text-gray-800 mb-3">Annual Savings & Contributions</h3>
         <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={chartData} margin={{ left: 80, right: 20, top: 10, bottom: 20 }}>
+          <BarChart data={chartData} margin={DEFAULT_CHART_MARGIN}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="year" label={{ value: 'Year', position: 'insideBottom', offset: -5 }} />
+            <XAxis
+              dataKey="age"
+              label={{ value: 'Age', position: 'insideBottom', offset: -5 }}
+              tickFormatter={formatAgeTick}
+            />
             <YAxis
               tickFormatter={formatCurrency}
-              label={{ value: 'Contribution (Nominal $)', angle: -90, position: 'insideLeft' }}
+              label={buildYAxisLabel('Contribution (Nominal $)')}
             />
-            <Tooltip formatter={(value: number) => formatCurrency(value)} />
+            <Tooltip
+              formatter={(value: number) => formatCurrency(value)}
+              labelFormatter={formatAgeTick}
+            />
             <Legend />
             <Bar dataKey="taxAdvContribution" fill="#10b981" name="Tax-Advantaged" />
             <Bar dataKey="taxableContribution" fill="#3b82f6" name="Taxable" />
@@ -259,14 +321,21 @@ export default function PreRetirementPanel({
       <section className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
         <h3 className="text-md font-semibold text-gray-800 mb-3">529 College Savings Growth</h3>
         <ResponsiveContainer width="100%" height={300}>
-          <AreaChart data={chart529Data} margin={{ left: 80, right: 20, top: 10, bottom: 20 }}>
+          <AreaChart data={chart529Data} margin={DEFAULT_CHART_MARGIN}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="year" label={{ value: 'Year', position: 'insideBottom', offset: -5 }} />
+            <XAxis
+              dataKey="age"
+              label={{ value: 'Age', position: 'insideBottom', offset: -5 }}
+              tickFormatter={formatAgeTick}
+            />
             <YAxis
               tickFormatter={formatCurrency}
-              label={{ value: '529 Balance (Nominal $)', angle: -90, position: 'insideLeft' }}
+              label={buildYAxisLabel('529 Balance (Nominal $)')}
             />
-            <Tooltip formatter={(value: number) => formatCurrency(value)} />
+            <Tooltip
+              formatter={(value: number) => formatCurrency(value)}
+              labelFormatter={formatAgeTick}
+            />
             <Legend />
             <Area
               type="monotone"
@@ -290,13 +359,17 @@ export default function PreRetirementPanel({
       <section className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
         <h3 className="text-md font-semibold text-gray-800 mb-3">Tax Analysis</h3>
         <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={chartData} margin={{ left: 80, right: 60, top: 10, bottom: 20 }}>
+          <LineChart data={chartData} margin={WIDE_RIGHT_CHART_MARGIN}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="year" label={{ value: 'Year', position: 'insideBottom', offset: -5 }} />
+            <XAxis
+              dataKey="age"
+              label={{ value: 'Age', position: 'insideBottom', offset: -5 }}
+              tickFormatter={formatAgeTick}
+            />
             <YAxis
               yAxisId="left"
               tickFormatter={formatCurrency}
-              label={{ value: 'Tax (Nominal $)', angle: -90, position: 'insideLeft' }}
+              label={buildYAxisLabel('Tax (Nominal $)')}
             />
             <YAxis
               yAxisId="right"
@@ -305,6 +378,7 @@ export default function PreRetirementPanel({
               label={{ value: 'Rate (%)', angle: 90, position: 'insideRight' }}
             />
             <Tooltip
+              labelFormatter={formatAgeTick}
               formatter={(value: number, name: string) =>
                 name === 'Effective Tax Rate' ? formatPercent(value) : formatCurrency(value)
               }
@@ -341,6 +415,35 @@ export default function PreRetirementPanel({
         </section>
       ) : (
         <>
+          {historicalMeta && (
+            <section className="bg-blue-50 border border-blue-200 rounded-lg shadow-sm p-4 text-sm text-blue-800">
+              <p>
+                Historical sampling first draw:
+                {' '}
+                <span className="font-semibold">
+                  {historicalFirstYear !== null ? historicalFirstYear : 'N/A'}
+                </span>
+                {historicalMinYear !== null && historicalMaxYear !== null && historicalMinYear !== historicalMaxYear && (
+                  <>
+                    {' '} (range {historicalMinYear}–{historicalMaxYear})
+                  </>
+                )}
+                .
+              </p>
+              <p className="mt-1">
+                Allocation:
+                {' '}
+                <span className="font-semibold">{historicalMeta.stockAllocation.toFixed(1)}% equities</span>
+                {historicalBondAllocation !== null && (
+                  <>
+                    {' '} / <span className="font-semibold">{historicalBondAllocation.toFixed(1)}% bonds</span>
+                  </>
+                )}
+                , bond sleeve return assumption{' '}
+                <span className="font-semibold">{historicalMeta.bondReturn.toFixed(1)}%</span>.
+              </p>
+            </section>
+          )}
           <section className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
             <h3 className="text-md font-semibold text-gray-800 mb-3">Readiness Probability Timeline</h3>
             <div className="overflow-x-auto">

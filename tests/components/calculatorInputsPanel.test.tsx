@@ -69,6 +69,8 @@ describe('CalculatorInputsPanel', () => {
       mcTargetSurvival: 90,
       mcRetirementEndAge: 90,
       mcUseHistoricalReturns: false,
+      mcStockAllocation: 50,
+      mcBondReturn: 4,
     },
     updateField: mockUpdateField,
     currentYear: 2025,
@@ -203,6 +205,22 @@ describe('CalculatorInputsPanel', () => {
 
     const button = screen.getByRole('button', { name: /Running…/i });
     expect(button).toBeDisabled();
+  });
+
+  it('shows historical allocation controls when historical mode is enabled', () => {
+    const props = {
+      ...defaultProps,
+      state: {
+        ...defaultProps.state,
+        mcEnabled: true,
+        mcUseHistoricalReturns: true,
+      },
+    };
+
+    render(<CalculatorInputsPanel {...props} />);
+
+    expect(screen.getByLabelText(/Equity Allocation \(%\)/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Bond Return Assumption \(%\)/i)).toBeInTheDocument();
   });
 
   it('renders many input fields', () => {
